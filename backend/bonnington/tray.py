@@ -20,12 +20,16 @@ def _icon_image(level: str) -> Image.Image:
 class Tray:
     def __init__(self, *, get_dnd: Callable[[], bool], set_dnd: Callable[[bool], None],
                  get_headphones: Callable[[], bool], set_headphones: Callable[[bool], None],
+                 get_always_listening: Callable[[], bool], set_always_listening: Callable[[bool], None],
                  on_quit: Callable[[], None]) -> None:
         self._level = "dormant"
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: f"Bonnington: {self._level}", None, enabled=False),
             pystray.MenuItem("Do not disturb", lambda: set_dnd(not get_dnd()),
                              checked=lambda _: get_dnd()),
+            pystray.MenuItem('Always listening ("Hey Britney")',
+                             lambda: set_always_listening(not get_always_listening()),
+                             checked=lambda _: get_always_listening()),
             pystray.MenuItem("Headphones mode", lambda: set_headphones(not get_headphones()),
                              checked=lambda _: get_headphones()),
             pystray.Menu.SEPARATOR,

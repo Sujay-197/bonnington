@@ -189,6 +189,8 @@ class _FakeOrch:
         self.unloaded = False
         self.last_interaction = 0.0
         self.on_wake_requested = None
+        self.on_session_end = None
+        self.active = False
 
     async def go_dormant(self):
         self.unloaded = True

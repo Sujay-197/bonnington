@@ -49,7 +49,10 @@ class LifecycleController:
         self._kick: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self.on_level_change: Callable[[Level], None] | None = None
+        # Hotkey-first (False): mic closed while dormant so Bluetooth buds keep full audio quality.
+        self.always_listening: Callable[[], bool] = lambda: True
         orch.on_wake_requested = self.request_wake
+        orch.on_session_end = self._kick_now
 
     def request_wake(self) -> None:
         """Called by the orchestrator (wake word) or the hotkey thread."""
@@ -59,13 +62,15 @@ class LifecycleController:
 
     def set_dnd(self, on: bool) -> None:
         self._dnd = on
+        self._kick_now()
+
+    def _kick_now(self) -> None:
         if self._loop is not None and self._kick is not None:
             self._loop.call_soon_threadsafe(self._kick.set)
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._kick = asyncio.Event()
-        await self.mic.open()
         while True:
             await self.step()
             self._kick.clear()
@@ -91,6 +96,19 @@ class LifecycleController:
         new = next_level(self.level, fullscreen=fullscreen, mic_busy=busy, manual_dnd=self._dnd,
                          wake_requested=woke, idle_s=idle_s, idle_unload_s=self.idle_unload_s)
         await self._transition(new)
+        await self._sync_mic()
+
+    async def _sync_mic(self) -> None:
+        if self.level == Level.ASLEEP:
+            want = False
+        elif self.always_listening():
+            want = True
+        else:
+            want = self.level == Level.AWAKE and bool(getattr(self.orch, "active", False))
+        if want and not self.mic.is_open:
+            await self.mic.open()
+        elif not want and self.mic.is_open:
+            await self.mic.close()
 
     async def _transition(self, new: Level) -> None:
         old = self.level
@@ -100,14 +118,10 @@ class LifecycleController:
         if old == Level.AWAKE:
             await self.orch.go_dormant()
             self.ui.hide()
-        if new == Level.ASLEEP:
-            await self.mic.close()
-        elif new == Level.DORMANT:
+        if new == Level.DORMANT:
             self._override_probes = False
-            await self.mic.open()
         elif new == Level.AWAKE:
             self._awake_since = self.clock()
-            await self.mic.open()
             self.ui.show()
         self.level = new
         if self.on_level_change:

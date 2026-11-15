@@ -19,6 +19,7 @@ class Settings:
     hotkey: str = "<ctrl>+<alt>+b"
     mic_device: str | None = None  # substring of the input device name; None = Windows default
     headphones_mode: bool = False
+    always_listening: bool = False  # False = hotkey first: mic closed while dormant
     llm_model: str = "gemma4:12b"
     stt_model_dir: str = "data/models/stt/sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
     tts_model: str = "data/models/tts/Qwen3-TTS-12Hz-1.7B-Base"

@@ -57,6 +57,7 @@ async def _amain(state: dict) -> None:
     orch = Orchestrator(deps)
     controller = LifecycleController(orch, mic, UIProcess(UI_EXE),
                                      idle_unload_s=settings.idle_unload_seconds)
+    controller.always_listening = lambda: settings.always_listening
     loop = asyncio.get_running_loop()
     hotkey = HotkeyListener(settings.hotkey, lambda: loop.call_soon_threadsafe(orch.trigger, "hotkey"))
 
@@ -64,7 +65,13 @@ async def _amain(state: dict) -> None:
         settings.headphones_mode = on
         save_settings(settings, ROOT / "data" / "settings.json")
 
-    state.update(controller=controller, settings=settings, set_headphones=set_headphones, loop=loop)
+    def set_always_listening(on: bool) -> None:
+        settings.always_listening = on
+        save_settings(settings, ROOT / "data" / "settings.json")
+        controller._kick_now()
+
+    state.update(controller=controller, settings=settings, set_headphones=set_headphones,
+                 set_always_listening=set_always_listening, loop=loop)
     state["ready"].set()
     await bridge.start()
     hotkey.start()
@@ -96,7 +103,9 @@ def main() -> None:
     controller, settings = state["controller"], state["settings"]
     tray = Tray(get_dnd=lambda: controller._dnd, set_dnd=controller.set_dnd,
                 get_headphones=lambda: settings.headphones_mode,
-                set_headphones=state["set_headphones"], on_quit=lambda: None)
+                set_headphones=state["set_headphones"],
+                get_always_listening=lambda: settings.always_listening,
+                set_always_listening=state["set_always_listening"], on_quit=lambda: None)
     controller.on_level_change = lambda lvl: tray.set_level(lvl.value)
     tray.run()  # returns on Quit; the daemon worker dies with the process
 

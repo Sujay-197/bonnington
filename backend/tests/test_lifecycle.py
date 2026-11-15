@@ -83,3 +83,39 @@ async def test_dnd_sleeps(fake_world):
 def test_controller_registers_wake_callback(fake_world):
     fake_world.controller()
     assert fake_world.orch.on_wake_requested is not None
+
+
+def _hotkey_first(fake_world):
+    c = fake_world.controller()
+    c.always_listening = lambda: False
+    return c
+
+
+async def test_hotkey_first_dormant_keeps_mic_closed(fake_world):
+    c = _hotkey_first(fake_world)
+    await fake_world.tick()
+    assert c.level == Level.DORMANT and not fake_world.mic.is_open
+
+
+async def test_hotkey_first_mic_open_only_during_session(fake_world):
+    c = _hotkey_first(fake_world)
+    await fake_world.tick()
+    fake_world.orch.active = True
+    fake_world.wake()
+    await fake_world.tick()
+    assert c.level == Level.AWAKE and fake_world.mic.is_open
+    fake_world.orch.active = False
+    await fake_world.tick()
+    assert c.level == Level.AWAKE and not fake_world.mic.is_open   # models stay warm, mic closed
+
+
+async def test_always_listening_keeps_mic_open_when_dormant(fake_world):
+    c = fake_world.controller()
+    c.always_listening = lambda: True
+    await fake_world.tick()
+    assert fake_world.mic.is_open
+
+
+def test_controller_registers_session_end_callback(fake_world):
+    fake_world.controller()
+    assert fake_world.orch.on_session_end is not None

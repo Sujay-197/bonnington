@@ -127,3 +127,17 @@ async def test_go_dormant_unloads_everything(rig):
     await rig.run_until_idle()
     await rig.orch.go_dormant()
     assert not rig.stt.is_loaded and not rig.tts.is_loaded and rig.brain.unloaded
+
+
+async def test_session_end_hook_fires(rig):
+    ended = []
+    rig.orch.on_session_end = lambda: ended.append(True)
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    assert ended == [True]
+
+
+async def test_active_while_trigger_pending(rig):
+    assert rig.orch.active is False
+    rig.orch.trigger("hotkey")
+    assert rig.orch.active is True

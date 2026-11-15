@@ -55,6 +55,7 @@ class Orchestrator:
         self.loading = False
         self.last_interaction = clock()
         self.on_wake_requested: Callable[[], None] | None = None
+        self.on_session_end: Callable[[], None] | None = None
         self._phase: str | None = None
         self._pending: SummonKind | None = None
         self._note: str | None = None
@@ -67,6 +68,11 @@ class Orchestrator:
         self._line_id = 0
 
     # --- public ---------------------------------------------------------------
+    @property
+    def active(self) -> bool:
+        """True while a conversation is pending or under way (the mic must stay open)."""
+        return self.state != "idle" or self._pending is not None or self.loading
+
     def trigger(self, kind: SummonKind) -> None:
         """Hotkey entry point. Safe to call from another thread."""
         self._pending = kind
@@ -291,6 +297,8 @@ class Orchestrator:
     def _end_session(self) -> None:
         self._note = None
         self._set_state("idle")
+        if self.on_session_end:
+            self.on_session_end()
 
     def _set_state(self, s: State) -> None:
         self.state = s
