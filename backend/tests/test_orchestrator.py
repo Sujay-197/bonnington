@@ -194,3 +194,17 @@ async def test_names_normalised_in_what_he_hears(rig):
     rig.stt_final("Hello Mornington how are you")
     await rig.run_until_idle()
     assert rig.brain_inputs[0].endswith("Hello Bonnington how are you")
+
+
+async def test_summon_shows_hint_when_mic_source_has_a_problem(rig):
+    rig.orch.d.source.status_hint = lambda: "Phone mic not connected. Open https://x on your phone."
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    assert "Phone mic not connected. Open https://x on your phone." in rig.subtitles()
+
+
+async def test_no_hint_when_mic_source_is_fine(rig):
+    rig.orch.d.source.status_hint = lambda: None
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    assert not any("not connected" in s for s in rig.subtitles())

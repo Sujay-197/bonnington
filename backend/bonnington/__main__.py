@@ -48,7 +48,23 @@ async def _amain(state: dict) -> None:
         data, sr = sf.read(path, dtype="float32", always_2d=False)
         await player.play(Utterance(data, sr, ""))
 
-    mic = MicSource(device=settings.mic_device)
+    settings_path = ROOT / "data" / "settings.json"
+    if settings.mic_source == "phone":
+        import ssl
+
+        from .audio.phone import PhoneMicSource, ensure_cert, lan_ip
+        from .config import ensure_phone_token
+        ip = lan_ip()
+        cert, key = ensure_cert(ROOT / "data" / "phone", ip)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(cert, key)
+        mic = PhoneMicSource(settings.phone_port, ensure_phone_token(settings, settings_path),
+                             ssl_context=tls, lan_ip=ip)
+        await mic.start()
+        print(f"Phone mic link (open on your phone, same Wi-Fi): {mic.url}", flush=True)
+        state["phone_url"] = mic.url
+    else:
+        mic = MicSource(device=settings.mic_device)
     deps = Deps(source=mic, wake=SttWake(settings.wake_phrases, settings, min_similarity=settings.wake_similarity),
                 turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model),
                 tts=TTSEngine(settings), player=player, bridge=bridge,
@@ -105,7 +121,8 @@ def main() -> None:
                 get_headphones=lambda: settings.headphones_mode,
                 set_headphones=state["set_headphones"],
                 get_always_listening=lambda: settings.always_listening,
-                set_always_listening=state["set_always_listening"], on_quit=lambda: None)
+                set_always_listening=state["set_always_listening"], on_quit=lambda: None,
+                phone_url=state.get("phone_url"))
     controller.on_level_change = lambda lvl: tray.set_level(lvl.value)
     tray.run()  # returns on Quit; the daemon worker dies with the process
 

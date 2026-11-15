@@ -20,3 +20,17 @@ def test_save_then_load_roundtrips(tmp_path):
     s.headphones_mode = True
     save_settings(s, p)
     assert load_settings(p).headphones_mode is True
+
+
+def test_phone_mic_defaults(tmp_path):
+    s = load_settings(tmp_path / "s.json")
+    assert s.mic_source == "device" and s.phone_port == 8766 and s.phone_token == ""
+
+
+def test_ensure_phone_token_generates_once_and_saves(tmp_path):
+    from bonnington.config import ensure_phone_token
+    p = tmp_path / "s.json"
+    s = load_settings(p)
+    t = ensure_phone_token(s, p)
+    assert len(t) >= 16 and load_settings(p).phone_token == t
+    assert ensure_phone_token(load_settings(p), p) == t

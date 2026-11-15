@@ -196,6 +196,11 @@ class Orchestrator:
             self._note = build_summons_note(ctx)
         if self.on_wake_requested:
             self.on_wake_requested()
+        hint = getattr(self.d.source, "status_hint", lambda: None)()
+        if hint:  # e.g. the phone mic page isn't open
+            log.warning("mic problem: %s", hint)
+            self._line_id += 1
+            self.d.bridge.broadcast(SubtitleLineEvent(self._line_id, hint, 8000, []))
         self.d.turn.reset()
         self._window_start = self._clock()
         self._heard_speech = False

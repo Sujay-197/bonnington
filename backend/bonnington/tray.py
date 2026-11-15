@@ -21,7 +21,7 @@ class Tray:
     def __init__(self, *, get_dnd: Callable[[], bool], set_dnd: Callable[[bool], None],
                  get_headphones: Callable[[], bool], set_headphones: Callable[[bool], None],
                  get_always_listening: Callable[[], bool], set_always_listening: Callable[[bool], None],
-                 on_quit: Callable[[], None]) -> None:
+                 on_quit: Callable[[], None], phone_url: str | None = None) -> None:
         self._level = "dormant"
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: f"Bonnington: {self._level}", None, enabled=False),
@@ -32,6 +32,8 @@ class Tray:
                              checked=lambda _: get_always_listening()),
             pystray.MenuItem("Headphones mode", lambda: set_headphones(not get_headphones()),
                              checked=lambda _: get_headphones()),
+            pystray.MenuItem("Show phone mic link", lambda: self.icon.notify(phone_url, "Open on your phone"),
+                             visible=phone_url is not None),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: (on_quit(), self.icon.stop())),
         )

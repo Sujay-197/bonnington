@@ -14,6 +14,9 @@ def _default_wake_phrases() -> dict[str, str]:
 @dataclass
 class Settings:
     hotkey: str = "<ctrl>+<alt>+b"
+    mic_source: str = "device"  # "device" = a PC input; "phone" = your phone over Wi-Fi
+    phone_port: int = 8766
+    phone_token: str = ""  # secret in the phone link; generated on first use
     mic_device: str | None = None  # substring of the input device name; None = Windows default
     headphones_mode: bool = False
     always_listening: bool = False  # False = hotkey first: mic closed while dormant
@@ -47,3 +50,11 @@ def load_settings(path: Path) -> Settings:
     raw = json.loads(path.read_text(encoding="utf-8"))
     known = {f.name for f in fields(Settings)}
     return Settings(**{k: v for k, v in raw.items() if k in known})
+
+
+def ensure_phone_token(s: Settings, path: Path) -> str:
+    if not s.phone_token:
+        import secrets
+        s.phone_token = secrets.token_urlsafe(16)
+        save_settings(s, path)
+    return s.phone_token
