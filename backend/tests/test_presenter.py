@@ -121,3 +121,22 @@ def test_events_serialise():
     assert json.loads(DashboardEvent({"date": "X"}).to_json()) == {"type": "dashboard", "data": {"date": "X"}}
     assert json.loads(FocusEvent(["week"]).to_json()) == {"type": "focus", "cards": ["week"]}
     assert json.loads(ShowWindowEvent().to_json()) == {"type": "show_window"}
+
+
+def test_status_line_shows_the_mic_connection(tmp_path):
+    tracker = Tracker(Vault(tmp_path / "v"), projects=_projects, now=lambda: NOW)
+    bridge = FakeBridge()
+    status = {"text": "PHONE · NOT CONNECTED"}
+    p = Presenter(tracker, bridge, mic=lambda: status["text"], models_loaded=lambda: False)
+    p.refresh()
+    assert bridge.of("dashboard")[-1].data["status"]["right"] == "MIC PHONE · NOT CONNECTED · MODELS ASLEEP"
+    status["text"] = "PHONE · CONNECTED"
+    p.refresh()
+    assert bridge.of("dashboard")[-1].data["status"]["right"] == "MIC PHONE · CONNECTED · MODELS ASLEEP"
+
+
+def test_user_speech_refreshes_the_dashboard_so_counters_are_live(world):
+    _, bridge, p = world
+    n = len(bridge.of("dashboard"))
+    p.user_said("okay so Britney, listen")
+    assert len(bridge.of("dashboard")) == n + 1

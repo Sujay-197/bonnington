@@ -48,7 +48,7 @@ async def _amain(state: dict) -> None:
     tracker = build_tracker(settings, ROOT.parent)
     store = GrudgeStore(ROOT / "data" / "bonnington.db")
     main_loop = asyncio.get_running_loop()
-    presenter = Presenter(tracker, bridge, britney_count=store.britney_count, mic=settings.mic_source,
+    presenter = Presenter(tracker, bridge, britney_count=store.britney_count, mic=lambda: state["mic"].mic_status() if "mic" in state else "",
                           models_loaded=lambda: state.get("orch") is not None and state["orch"].models_loaded(),
                           defer=lambda fn: main_loop.run_in_executor(None, fn))
     tracker.on_change = presenter.changed
@@ -85,6 +85,9 @@ async def _amain(state: dict) -> None:
     state["orch"] = orch
     from .events import ShowWindowEvent
     state["show_window"] = lambda: bridge.broadcast(ShowWindowEvent())
+    state["mic"] = mic
+    mic.on_connection_change = presenter.refresh
+    orch.on_models_changed = presenter.refresh
     orch.on_user_text = presenter.user_said
     orch.on_reply_done = presenter.reply_done
     controller = LifecycleController(orch, mic, UIProcess(UI_EXE),

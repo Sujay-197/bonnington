@@ -31,18 +31,25 @@ class GrudgeStore:
         self._db.commit()
 
     def britney_count(self) -> int:
-        return self._db.execute("SELECT COUNT(*) FROM summons WHERE kind = 'britney'").fetchone()[0]
+        return self._db.execute(
+            "SELECT COUNT(*) FROM summons WHERE kind IN ('britney', 'mention')").fetchone()[0]
+
+    def record_mention(self, now: datetime) -> int:
+        """He was called Britney mid-conversation. Counts towards the grudge, but is not a summons."""
+        self._db.execute("INSERT INTO summons (ts, kind) VALUES (?, 'mention')", (now.timestamp(),))
+        self._db.commit()
+        return self.britney_count()
 
     def summons_count(self) -> int:
-        return self._db.execute("SELECT COUNT(*) FROM summons").fetchone()[0]
+        return self._db.execute("SELECT COUNT(*) FROM summons WHERE kind != 'mention'").fetchone()[0]
 
     def record_summons(self, kind: SummonKind, now: datetime) -> SummonsContext:
         ts = now.timestamp()
-        last = self._db.execute("SELECT MAX(ts) FROM summons").fetchone()[0]
+        last = self._db.execute("SELECT MAX(ts) FROM summons WHERE kind != 'mention'").fetchone()[0]
         self._db.execute("INSERT INTO summons (ts, kind) VALUES (?, ?)", (ts, kind))
         self._db.commit()
         recent = self._db.execute(
-            "SELECT COUNT(*) FROM summons WHERE ts >= ?", (ts - WINDOW_SECONDS,)
+            "SELECT COUNT(*) FROM summons WHERE kind != 'mention' AND ts >= ?", (ts - WINDOW_SECONDS,)
         ).fetchone()[0]
         return SummonsContext(
             kind=kind,

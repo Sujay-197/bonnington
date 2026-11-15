@@ -63,7 +63,9 @@ describe("cards", () => {
     expect(h).toContain("3 LIVE");
     expect(h).toContain("2 IDLE");
     expect(h).toContain("2 DONE");
-    expect(h).toContain("height:100%");
+    expect(h).toContain('class="ok h10"');
+    expect(h).toContain('class="dim h7"');
+    expect(h).not.toContain("style=");        // the app window blocks inline styles
     expect(h).toContain("medrag");
     expect(h).not.toContain("HOLD");            // no on-hold bar when there are none
   });
@@ -77,5 +79,17 @@ describe("cards", () => {
     const h = weekHtml({ ...D, week: [{ text: "<img src=x onerror=alert(1)>", when: "TODAY", tone: "soon" }], later: [] });
     expect(h).not.toContain("<img");
     expect(h).toContain("&lt;img");
+  });
+});
+
+import { statusRight } from "../src/cards.js";
+
+describe("status line", () => {
+  test("shows the mic, the models and what he is doing right now", () => {
+    const d = { status: { right: "MIC PHONE · CONNECTED · MODELS LOADED" } };
+    expect(statusRight(d, "idle")).toBe("MIC PHONE · CONNECTED · MODELS LOADED · IDLE");
+    expect(statusRight(d, "speaking")).toBe("MIC PHONE · CONNECTED · MODELS LOADED · RESPONDING");
+    expect(statusRight(d, "waking")).toBe("MIC PHONE · CONNECTED · MODELS LOADED · WAKING UP");
+    expect(statusRight(null, "listening")).toBe("LISTENING");
   });
 });

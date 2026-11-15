@@ -240,3 +240,27 @@ async def test_presenter_hooks_fire_with_user_text_and_full_reply(rig):
     await rig.run_until_idle()
     assert heard == ["what's left this week"]
     assert replies == ["One exam. Nine days."]
+
+
+async def test_britney_said_in_conversation_is_counted_and_he_is_told(rig):
+    rig.orch.trigger("hotkey")
+    rig.stt_final("Okay so Brittany, this is what it's about")
+    await rig.run_until_idle()
+    assert rig.store.britney_count() == 1
+    assert "[They just called you Britney. Britney count is now 1.]" in rig.brain_inputs[0]
+
+
+async def test_hey_britney_summons_is_not_double_counted(rig):
+    rig.wake_on_frame(0, "britney")
+    rig.stt_final("hey Britney what's left")
+    await rig.run_until_idle()
+    assert rig.store.britney_count() == 2      # once for the summons, once for saying it again
+
+
+async def test_models_changed_hook_fires_on_load_and_unload(rig):
+    seen = []
+    rig.orch.on_models_changed = lambda: seen.append(rig.orch.models_loaded())
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    await rig.orch.go_dormant()
+    assert seen == [True, False]

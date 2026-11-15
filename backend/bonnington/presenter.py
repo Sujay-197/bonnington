@@ -53,7 +53,7 @@ def pick_cards(text: str, subjects: list[str], projects: list[str]) -> tuple[set
 
 class Presenter:
     def __init__(self, tracker: Tracker, bridge: Any, *, britney_count: Callable[[], int] = lambda: 0,
-                 mic: str = "device", models_loaded: Callable[[], bool] = lambda: False,
+                 mic: Any = "device", models_loaded: Callable[[], bool] = lambda: False,
                  defer: Callable[[Callable[[], None]], Any] | None = None) -> None:
         self.tracker, self.bridge = tracker, bridge
         self._britney, self._mic, self._models = britney_count, mic, models_loaded
@@ -67,8 +67,9 @@ class Presenter:
 
     def _refresh_now(self) -> None:
         try:
+            mic = self._mic() if callable(self._mic) else self._mic
             data = build_dashboard(self.tracker, britney_count=self._britney(), focus_project=self._project,
-                                   mic=self._mic, models_loaded=self._models())
+                                   mic=mic, models_loaded=self._models())
         except Exception:  # the dashboard is a view; it must never take the assistant down
             log.exception("dashboard refresh failed")
             return
@@ -88,6 +89,7 @@ class Presenter:
     def user_said(self, text: str) -> None:
         cards, project = pick_cards(text, *self._names())
         self._show(cards, project, replace=True)
+        self.refresh()        # counters (Britney, tasks) stay live with the conversation
 
     def reply_done(self, text: str) -> None:
         cards, project = pick_cards(text, *self._names())

@@ -157,3 +157,16 @@ async def test_too_many_wrong_codes_locks_out(unused_tcp_port):
 
 def test_url_is_short():
     assert PhoneMicSource(8766, TOKEN, lan_ip="192.168.1.3").url == "https://192.168.1.3:8766"
+
+
+async def test_connection_changes_are_reported(unused_tcp_port):
+    src = _src(unused_tcp_port)
+    seen = []
+    src.on_connection_change = lambda: seen.append(src.connected)
+    await src.start()
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}"):
+        await asyncio.sleep(0.05)
+    await asyncio.sleep(0.1)
+    assert seen == [True, False]
+    assert src.mic_status() == "PHONE · NOT CONNECTED"
+    await src.stop()

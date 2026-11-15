@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import deque
 import time
 from collections.abc import Awaitable, Callable
@@ -36,6 +37,7 @@ _FAREWELLS = ("bye", "bye bye", "goodbye", "good night", "goodnight", "see you",
               "that's all for now", "that's all for tonight", "that's all", "that's it", "you can go",
               "you can go now", "go to sleep", "we're done", "we're done here", "go away", "be gone",
               "stop listening", "dismissed")
+_BRITNEY = re.compile(r"\bbritney\b", re.IGNORECASE)
 _LEAVING_NOTE = " [They are leaving. Give one short parting line and nothing else.]"
 
 
@@ -82,6 +84,7 @@ class Orchestrator:
         self.last_interaction = clock()
         self.on_wake_requested: Callable[[], None] | None = None
         self.on_session_end: Callable[[], None] | None = None
+        self.on_models_changed: Callable[[], None] | None = None   # models finished loading or unloading
         self.on_user_text: Callable[[str], None] | None = None     # what the user just said
         self.on_reply_done: Callable[[str], None] | None = None    # everything he said in reply
         self._phase: str | None = None
@@ -138,6 +141,8 @@ class Orchestrator:
         except BrainUnavailable:
             pass
         await self.d.run_blocking(self.d.tts.unload)
+        if self.on_models_changed:
+            self.on_models_changed()
 
     # --- frame handling ---------------------------------------------------------
     def _on_frame(self, frame) -> None:
@@ -208,6 +213,9 @@ class Orchestrator:
             self.on_user_text(text)
         msg = f"{self._note} {text}" if self._note else text
         self._note = None
+        if _BRITNEY.search(text):
+            count = self.d.store.record_mention(self.d.now())
+            msg += f" [They just called you Britney. Britney count is now {count}.]"
         self._leaving = is_farewell(text)
         if self._leaving:
             msg += _LEAVING_NOTE
@@ -262,6 +270,8 @@ class Orchestrator:
         finally:
             sleeper.cancel()
             self.loading = False
+            if self.on_models_changed:
+                self.on_models_changed()
         if self.state == "listening":
             d.stt.start_turn()
             self._emit_phase()

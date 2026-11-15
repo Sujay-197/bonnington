@@ -48,6 +48,9 @@ class MicSource:
         self._last_audio = 0.0  # monotonic time the driver last delivered audio
         self.is_open = False
 
+    def mic_status(self) -> str:
+        return str(self.device).upper() if self.device is not None else "DEFAULT INPUT"
+
     async def open(self) -> None:
         self._want_open.set()
         self.is_open = True

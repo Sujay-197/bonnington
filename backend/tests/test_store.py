@@ -39,3 +39,15 @@ def test_count_can_be_read_from_another_thread(tmp_path):
     t.start()
     t.join()
     assert out == [1]
+
+
+def test_saying_britney_mid_conversation_counts_but_is_not_a_summons(tmp_path):
+    st = GrudgeStore(tmp_path / "b.db")
+    t0 = datetime(2026, 11, 15, 22, 0)
+    st.record_summons("hotkey", t0)
+    assert st.record_mention(t0 + timedelta(seconds=20)) == 1
+    assert st.record_mention(t0 + timedelta(seconds=40)) == 2
+    assert st.britney_count() == 2
+    ctx = st.record_summons("hotkey", t0 + timedelta(seconds=60))
+    assert ctx.britney_count == 2 and ctx.summons_last_10min == 2 and ctx.seconds_since_last == 60.0
+    assert st.summons_count() == 2

@@ -10,16 +10,16 @@ export function visibleWords(line, nowMs) {
 }
 
 const FADE_MS = 600;
+
+// The app window blocks inline styles, so fading is done with a class.
+export function lineClass(line, nowMs) {
+  return nowMs - line.startedAt - line.durationMs > 0 ? "out" : "";
+}
 const USER_FADE_AFTER_MS = 1500;
 
 export function renderSubtitles(el, userEl, state, nowMs) {
-  const html = state.lines.map((line, i) => {
-    const older = i < state.lines.length - 1;
-    const ended = nowMs - line.startedAt - line.durationMs;
-    const fade = older || ended > 0 ? Math.max(0, 1 - Math.max(ended, older ? FADE_MS : 0) / FADE_MS) : 1;
-    const opacity = older ? Math.min(fade, 0.45) : fade;
-    return `<div style="opacity:${opacity.toFixed(2)};transition:opacity .2s">${escapeHtml(visibleWords(line, nowMs))}</div>`;
-  }).join("");
+  const html = state.lines.map((line) =>
+    `<div class="${lineClass(line, nowMs)}">${escapeHtml(visibleWords(line, nowMs))}</div>`).join("");
   if (el.innerHTML !== html) el.innerHTML = html;
   let userOpacity = state.userText || statusText(state) ? 1 : 0;
   if (state.userTextAt != null) userOpacity = Math.max(0, 1 - (nowMs - state.userTextAt - USER_FADE_AFTER_MS) / FADE_MS);

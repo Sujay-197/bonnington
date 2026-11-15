@@ -1,5 +1,5 @@
 import { connect } from "./bridge.js";
-import { countsHtml, focusHtml, nextHtml, projectsHtml, scoresHtml, weekHtml } from "./cards.js";
+import { countsHtml, focusHtml, nextHtml, projectsHtml, scoresHtml, statusRight, weekHtml } from "./cards.js";
 import { createGlobe } from "./globe.js";
 import { initialState, linesActive, memoryNote, reduce } from "./store.js";
 import { renderSubtitles } from "./subtitles.js";
@@ -27,7 +27,7 @@ createGlobe($("globe"), () => state);
 
 // --- cards: re-rendered only when their data or highlight actually changes ---------------------------
 const BUILDERS = { week: weekHtml, counts: countsHtml, scores: scoresHtml, next: nextHtml, projects: projectsHtml, focus: focusHtml };
-let shownDash = null, shownCards = "";
+let shownDash = null, shownCards = "", shownStatus = null;
 function renderCards() {
   if (state.dash !== shownDash) {
     shownDash = state.dash;
@@ -37,8 +37,9 @@ function renderCards() {
     }
     $("t-brit").textContent = shownDash ? `BRITNEY ${d.britney}` : "";
     $("b-left").textContent = (d.status && d.status.left) || "";
-    $("b-right").textContent = (d.status && d.status.right) || "";
   }
+  const status = statusRight(state.dash, state.phase);
+  if (status !== shownStatus) { shownStatus = status; $("b-right").textContent = status; }
   const key = state.cards.join(",");
   if (key !== shownCards) {
     shownCards = key;

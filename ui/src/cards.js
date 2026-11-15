@@ -42,7 +42,7 @@ export function projectsHtml(d) {
     .filter(g => g[1] > 0);
   const max = Math.max(1, ...groups.map(g => g[1]));
   const bars = groups.map(([name, n, cls]) =>
-    `<div class="${cls}" style="height:${Math.round(100 * n / max)}%"><span>${n} ${name}</span></div>`).join("");
+    `<div class="${cls} h${Math.max(1, Math.round(10 * n / max))}"><span>${n} ${name}</span></div>`).join("");
   const rows = (p.rows || []).map(r => row(r.name, r.note, r.tone === "muted" ? "mu" : r.tone)).join("");
   if (!groups.length) return `<div class="empty">No coding projects found.</div>`;
   return `<div class="bars">${bars}</div>${rows}`;
@@ -52,4 +52,13 @@ export function focusHtml(d) {
   const f = d.focus;
   if (!f) return `<div class="empty">No project in focus.</div>`;
   return `<div class="big mid">${esc(f.name)}</div>` + (f.rows || []).map(r => row(r[0], r[1], "mu")).join("");
+}
+
+const PHASE_LABEL = { idle: "IDLE", waking: "WAKING UP", listening: "LISTENING", thinking: "THINKING", speaking: "RESPONDING" };
+
+// Bottom-right readout: where the mic is, whether the models are loaded, and what he is doing right now.
+export function statusRight(d, phase) {
+  const base = (d && d.status && d.status.right) || "";
+  const now = PHASE_LABEL[phase] || "IDLE";
+  return base ? `${base} · ${now}` : now;
 }

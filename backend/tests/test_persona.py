@@ -31,3 +31,7 @@ def test_summons_note_hotkey_and_hours():
 
 def test_prompt_limits_name_grudge_to_britney_summons():
     assert "Only complain about the name when the note says" in build_system_prompt()
+
+
+def test_tracker_prompt_says_to_save_with_what_is_known():
+    assert "Save with what you have" in build_system_prompt(tracker=True)

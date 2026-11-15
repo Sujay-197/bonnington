@@ -54,12 +54,16 @@
   .stat span { font-size: 0.85rem; color: var(--mu); letter-spacing: .06em; }
   .bars { display: flex; align-items: flex-end; gap: 0.8rem; height: 3.4rem; margin: 1.4rem 0 0.6rem; }
   .bars div { flex: 1; max-width: 4.5rem; position: relative; min-height: 2px; background: #444441; }
+  .bars .h1 { height: 10%; } .bars .h2 { height: 20%; } .bars .h3 { height: 30%; } .bars .h4 { height: 40%; } .bars .h5 { height: 50%; }
+  .bars .h6 { height: 60%; } .bars .h7 { height: 70%; } .bars .h8 { height: 80%; } .bars .h9 { height: 90%; } .bars .h10 { height: 100%; }
   .bars div.ok { background: var(--green); } .bars div.warn { background: var(--amber); }
+  #b-right b { color: var(--amber); font-weight: 400; }
   .bars div span { position: absolute; top: -1.3rem; left: 0; right: 0; text-align: center; font-size: 0.85rem; color: #d3d1c7; white-space: nowrap; }
 
   .gl { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
   #globe { flex: 1; min-height: 9rem; width: 100%; display: block; }
   .say { position: relative; min-height: 4rem; margin: 0.4rem 0 0.8rem; }
+  #subs div { transition: opacity .5s; } #subs div.out { opacity: 0; }
   #subs div:not(:last-child) { display: none; }   /* one line at a time: the cards need the room */
   #subs, #user { position: absolute; left: 0; right: 0; top: 0; text-align: center; padding: 0 0.6rem;
                  font-family: Georgia, "Times New Roman", serif; line-height: 1.5; }

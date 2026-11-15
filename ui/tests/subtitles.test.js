@@ -29,3 +29,11 @@ test("status cue while listening and waking", () => {
   expect(statusText({ ...init(), phase: "thinking" })).toBe("");
   expect(statusText({ ...init(), phase: "listening", userText: "hey" })).toBe("");
 });
+
+import { lineClass } from "../src/subtitles.js";
+
+test("a finished subtitle line is marked to fade, without inline styles", () => {
+  const line = { text: "Hm.", startedAt: 1000, durationMs: 500, wordOffsetsMs: [0] };
+  expect(lineClass(line, 1200)).toBe("");
+  expect(lineClass(line, 1600)).toBe("out");
+});

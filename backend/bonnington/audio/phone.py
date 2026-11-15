@@ -111,6 +111,7 @@ class PhoneMicSource:
         self._pending = np.zeros(0, np.int16)
         self._want_open = asyncio.Event()
         self._bad: list[float] = []  # times of recent wrong codes
+        self.on_connection_change = None   # called when the phone connects or drops
         self.is_open = False
 
     # --- lifecycle --------------------------------------------------------------
@@ -121,6 +122,16 @@ class PhoneMicSource:
     @property
     def connected(self) -> bool:
         return self._phone is not None
+
+    def mic_status(self) -> str:
+        return "PHONE · CONNECTED" if self.connected else "PHONE · NOT CONNECTED"
+
+    def _notify(self) -> None:
+        if self.on_connection_change is not None:
+            try:
+                self.on_connection_change()
+            except Exception:
+                log.exception("connection-change listener failed")
 
     def status_hint(self) -> str | None:
         if self.connected:
@@ -188,6 +199,7 @@ class PhoneMicSource:
         self._phone = ws
         self._drain()
         log.info("phone mic connected")
+        self._notify()
         try:
             await self._tell_phone()
             async for msg in ws:
@@ -199,6 +211,7 @@ class PhoneMicSource:
             if self._phone is ws:
                 self._phone = None
                 log.info("phone mic disconnected")
+                self._notify()
 
     def _ingest(self, data: bytes) -> None:
         block = np.frombuffer(data[: len(data) // 2 * 2], dtype="<i2")
