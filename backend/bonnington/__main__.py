@@ -37,7 +37,7 @@ async def _amain(state: dict) -> None:
     from .tts import TTSEngine, Utterance
     from .ui_process import UIProcess
     from .vad import TurnDetector
-    from .wake import WakeDetector
+    from .wake import KeywordWake
 
     settings = load_settings(ROOT / "data" / "settings.json")
     bridge = UIBridge(settings.ws_port)
@@ -49,7 +49,8 @@ async def _amain(state: dict) -> None:
         await player.play(Utterance(data, sr, ""))
 
     mic = MicSource(device=settings.mic_device)
-    deps = Deps(source=mic, wake=WakeDetector(settings.wake_models, settings.wake_threshold),
+    deps = Deps(source=mic, wake=KeywordWake(settings.wake_phrases, settings.kws_model_dir,
+                                     boost=settings.wake_boost, threshold=settings.wake_threshold),
                 turn=TurnDetector(), stt=SherpaSTT(settings), brain=Brain(settings.llm_model),
                 tts=TTSEngine(settings), player=player, bridge=bridge,
                 store=GrudgeStore(ROOT / "data" / "bonnington.db"), settings=settings,

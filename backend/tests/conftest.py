@@ -122,22 +122,6 @@ def fake_vad():
     return make
 
 
-@pytest.fixture
-def fake_oww():
-    """Stands in for openwakeword.Model: predict() returns scripted score dicts per frame."""
-    def make(script):
-        class M:
-            def __init__(self):
-                self.it = iter(script)
-
-            def predict(self, frame):
-                return next(self.it, {})
-
-            def reset(self):
-                pass
-        return M()
-    return make
-
 
 @pytest.fixture
 def rig(tmp_path):

@@ -7,11 +7,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
-def _default_wake_models() -> dict[str, str]:
-    return {
-        "britney": "data/wake/hey_britney.onnx",
-        "bonnington": "data/wake/hey_bonnington.onnx",
-    }
+def _default_wake_phrases() -> dict[str, str]:
+    return {"britney": "HEY BRITNEY", "bonnington": "HEY BONNINGTON"}
 
 
 @dataclass
@@ -26,8 +23,10 @@ class Settings:
     voice_ref_wav: str = "data/voice/reference.wav"
     voice_ref_text: str = "data/voice/reference.txt"
     hm_wav: str = "data/voice/hm.wav"
-    wake_models: dict[str, str] = field(default_factory=_default_wake_models)
-    wake_threshold: float = 0.5
+    wake_phrases: dict[str, str] = field(default_factory=_default_wake_phrases)
+    kws_model_dir: str = "data/models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+    wake_threshold: float = 0.25
+    wake_boost: float = 1.5
     followup_seconds: float = 8.0
     idle_unload_seconds: float = 600.0
     ws_port: int = 8765

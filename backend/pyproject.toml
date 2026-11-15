@@ -21,7 +21,7 @@ ml = [
     "faster-qwen3-tts",
     "transformers>=4.57,<5",
     "sherpa-onnx>=1.12",
-    "openwakeword>=0.6",
+    "sentencepiece>=0.2",
     "soundfile>=0.13",
 ]
 
