@@ -61,8 +61,8 @@ async def _amain(state: dict) -> None:
         mic = PhoneMicSource(settings.phone_port, ensure_phone_token(settings, settings_path),
                              ssl_context=tls, lan_ip=ip)
         await mic.start()
-        print(f"Phone mic link (open on your phone, same Wi-Fi): {mic.url}", flush=True)
-        state["phone_url"] = mic.url
+        print(f"Phone mic: open {mic.url} on your phone (same Wi-Fi) and enter code {mic.token}", flush=True)
+        state["phone_url"] = f"{mic.url}  code {mic.token}"
     else:
         mic = MicSource(device=settings.mic_device)
     deps = Deps(source=mic, wake=SttWake(settings.wake_phrases, settings, min_similarity=settings.wake_similarity),

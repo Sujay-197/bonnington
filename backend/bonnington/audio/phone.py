@@ -14,6 +14,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -69,6 +70,36 @@ def page_html(token: str) -> str:
     return _PAGE.replace("__TOKEN__", token)
 
 
+def code_form_html(wrong: bool = False) -> str:
+    note = "That code didn't match. Try again." if wrong else "Enter the 6-digit code shown on your PC."
+    return _CODE_FORM.replace("__NOTE__", note)
+
+
+MAX_BAD_CODES = 8
+LOCKOUT_S = 60.0
+
+_CODE_FORM = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bonnington mic</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#ddd;font-family:Georgia,serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  input{font:inherit;font-size:32px;letter-spacing:8px;text-align:center;width:220px;padding:12px;
+    border-radius:12px;border:1px solid #777;background:#111;color:#fff}
+  button{font:inherit;font-size:20px;margin-top:20px;padding:12px 28px;border-radius:999px;
+    border:1px solid #777;background:#111;color:#fff}
+  p{color:#888;font-size:15px;padding:0 24px}
+</style></head><body>
+<p>__NOTE__</p>
+<form method="get" action="/">
+  <input name="t" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autofocus aria-label="6-digit code">
+  <br><button type="submit">Connect</button>
+</form>
+</body></html>
+"""
+
+
 class PhoneMicSource:
     def __init__(self, port: int, token: str, host: str = "0.0.0.0",
                  ssl_context: ssl.SSLContext | None = None, lan_ip: str | None = None) -> None:
@@ -79,12 +110,13 @@ class PhoneMicSource:
         self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
         self._pending = np.zeros(0, np.int16)
         self._want_open = asyncio.Event()
+        self._bad: list[float] = []  # times of recent wrong codes
         self.is_open = False
 
     # --- lifecycle --------------------------------------------------------------
     @property
     def url(self) -> str:
-        return f"https://{self._ip or lan_ip()}:{self.port}/?t={self.token}"
+        return f"https://{self._ip or lan_ip()}:{self.port}"
 
     @property
     def connected(self) -> bool:
@@ -93,7 +125,7 @@ class PhoneMicSource:
     def status_hint(self) -> str | None:
         if self.connected:
             return None
-        return f"Phone mic not connected. Open {self.url} on your phone."
+        return f"Phone mic not connected. Open {self.url} on your phone and enter code {self.token}."
 
     async def start(self) -> None:
         self._server = await serve(self._handle, self.host, self.port, ssl=self.ssl_context,
@@ -131,14 +163,21 @@ class PhoneMicSource:
 
     # --- server -----------------------------------------------------------------
     def _process_request(self, connection: ServerConnection, request):
-        if not authorised(request.path, self.token):
-            return connection.respond(403, "Forbidden\n")
-        if request.headers.get("Upgrade", "").lower() != "websocket":
-            body = page_html(self.token).encode()
-            return Response(200, "OK", Headers([("Content-Type", "text/html; charset=utf-8"),
-                                                ("Content-Length", str(len(body))),
-                                                ("Cache-Control", "no-store")]), body)
-        return None
+        now = time.monotonic()
+        self._bad = [t for t in self._bad if now - t < LOCKOUT_S]
+        if len(self._bad) >= MAX_BAD_CODES:
+            return connection.respond(429, "Too many wrong codes. Wait a minute and try again.\n")
+        ok = authorised(request.path, self.token)
+        tried = bool(parse_qs(urlsplit(request.path).query).get("t", [""])[0])
+        if not ok and tried:
+            self._bad.append(now)
+            log.warning("phone mic: wrong code tried")
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            return None if ok else connection.respond(403, "Forbidden\n")
+        body = (page_html(self.token) if ok else code_form_html(wrong=tried)).encode()
+        return Response(200, "OK", Headers([("Content-Type", "text/html; charset=utf-8"),
+                                            ("Content-Length", str(len(body))),
+                                            ("Cache-Control", "no-store")]), body)
 
     async def _handle(self, ws: ServerConnection) -> None:
         if self._phone is not None:      # a newer connection replaces the old one

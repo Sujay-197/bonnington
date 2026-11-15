@@ -32,5 +32,13 @@ def test_ensure_phone_token_generates_once_and_saves(tmp_path):
     p = tmp_path / "s.json"
     s = load_settings(p)
     t = ensure_phone_token(s, p)
-    assert len(t) >= 16 and load_settings(p).phone_token == t
+    assert len(t) == 6 and t.isdigit() and load_settings(p).phone_token == t
     assert ensure_phone_token(load_settings(p), p) == t
+
+
+def test_old_long_token_is_replaced_by_a_code(tmp_path):
+    from bonnington.config import ensure_phone_token
+    p = tmp_path / "s.json"
+    s = load_settings(p)
+    s.phone_token = "Zx9-long-old-token_abc"
+    assert ensure_phone_token(s, p).isdigit()

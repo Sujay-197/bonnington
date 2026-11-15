@@ -53,8 +53,8 @@ def load_settings(path: Path) -> Settings:
 
 
 def ensure_phone_token(s: Settings, path: Path) -> str:
-    if not s.phone_token:
+    if not (len(s.phone_token) == 6 and s.phone_token.isdigit()):
         import secrets
-        s.phone_token = secrets.token_urlsafe(16)
+        s.phone_token = f"{secrets.randbelow(10 ** 6):06d}"  # short enough to type on a phone
         save_settings(s, path)
     return s.phone_token

@@ -8,7 +8,7 @@ import websockets
 
 from bonnington.audio.phone import PhoneMicSource, authorised, ensure_cert, page_html
 
-TOKEN = "s3cret"
+TOKEN = "482913"
 
 
 async def _take(src, n):
@@ -24,8 +24,8 @@ def _src(port):
 
 
 @pytest.mark.parametrize("path,ok", [
-    ("/ws?t=s3cret", True),
-    ("/?t=s3cret", True),
+    ("/ws?t=482913", True),
+    ("/?t=482913", True),
     ("/ws?t=wrong", False),
     ("/ws", False),
     ("/ws?t=", False),
@@ -36,7 +36,7 @@ def test_authorised(path, ok):
 
 def test_page_contains_token_and_asks_for_16k_mono():
     html = page_html(TOKEN)
-    assert "s3cret" in html and "16000" in html and "getUserMedia" in html
+    assert "482913" in html and "16000" in html and "getUserMedia" in html
 
 
 async def test_phone_audio_arrives_as_80ms_frames(unused_tcp_port):
@@ -69,7 +69,8 @@ async def test_silence_and_a_hint_while_no_phone_is_connected(unused_tcp_port):
     await src.open()
     frames = await asyncio.wait_for(_take(src, 3), 3)
     assert all(not f.any() for f in frames) and frames[0].shape == (1280,)
-    assert f"https://127.0.0.1:{unused_tcp_port}/?t={TOKEN}" in src.status_hint()
+    hint = src.status_hint()
+    assert f"https://127.0.0.1:{unused_tcp_port}" in hint and "482913" in hint and "?t=" not in hint
     async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}"):
         await asyncio.sleep(0.05)
         assert src.connected and src.status_hint() is None
@@ -117,3 +118,42 @@ def test_ensure_cert_creates_a_loadable_certificate(tmp_path):
     assert cert.exists() and key.exists()
     ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, key)
     assert ensure_cert(tmp_path, "192.168.1.3") == (cert, key)    # reused, not regenerated
+
+
+async def _get(port, path):
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(f"GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode())
+    body = (await asyncio.wait_for(reader.read(), 3)).decode()
+    writer.close()
+    return body
+
+
+async def test_plain_link_shows_a_code_form_not_forbidden(unused_tcp_port):
+    src = _src(unused_tcp_port)
+    await src.start()
+    body = await _get(unused_tcp_port, "/")
+    assert "200" in body.splitlines()[0] and "6-digit code" in body and "getUserMedia" not in body
+    assert TOKEN not in body
+    await src.stop()
+
+
+async def test_wrong_code_shows_the_form_again_with_a_message(unused_tcp_port):
+    src = _src(unused_tcp_port)
+    await src.start()
+    body = await _get(unused_tcp_port, "/?t=000000")
+    assert "200" in body.splitlines()[0] and "didn't match" in body
+    await src.stop()
+
+
+async def test_too_many_wrong_codes_locks_out(unused_tcp_port):
+    src = _src(unused_tcp_port)
+    await src.start()
+    for _ in range(8):
+        await _get(unused_tcp_port, "/?t=000000")
+    body = await _get(unused_tcp_port, f"/?t={TOKEN}")
+    assert "429" in body.splitlines()[0]
+    await src.stop()
+
+
+def test_url_is_short():
+    assert PhoneMicSource(8766, TOKEN, lan_ip="192.168.1.3").url == "https://192.168.1.3:8766"
