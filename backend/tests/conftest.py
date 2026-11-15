@@ -64,54 +64,53 @@ def fake_output_stream():
     return FakeOutputStream
 
 
-class _FlakyStream:
-    def __init__(self, owner, fail_after):
-        self.owner, self.fail_after, self.reads = owner, fail_after, 0
+class CallbackStream:
+    """Mimics sounddevice.InputStream in callback mode. Delivers `frames` blocks (None = forever) then goes silent."""
+
+    def __init__(self, callback, blocksize, frames=None):
+        import threading
+        self.callback, self.blocksize, self.frames = callback, blocksize, frames
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        import time
+
+        import numpy as np
+        n = 0
+        while not self._stop.is_set() and (self.frames is None or n < self.frames):
+            self.callback(np.zeros((self.blocksize, 1), np.int16), self.blocksize, None, None)
+            n += 1
+            time.sleep(0.002)
 
     def start(self):
-        pass
+        self._t.start()
 
-    def read(self, n):
-        import numpy as np
-        self.reads += 1
-        if self.fail_after is not None and self.reads > self.fail_after:
-            raise OSError("device unplugged")
-        return np.zeros((n, 1), np.int16), False
+    def abort(self):
+        self._stop.set()
 
-    def stop(self):
-        pass
+    stop = abort
 
     def close(self):
-        pass
+        self._stop.set()
 
 
-class FlakyStreamFactory:
-    """First stream dies after `fail_after` reads; later streams are healthy."""
+class StallingFactory:
+    """First stream stalls after `stall_after` blocks; later streams are healthy."""
 
-    def __init__(self, fail_after):
-        self.fail_after, self.opens = fail_after, 0
+    def __init__(self, stall_after):
+        self.stall_after, self.opens, self.kw = stall_after, 0, {}
 
     def __call__(self, **kw):
         self.opens += 1
-        return _FlakyStream(self, self.fail_after if self.opens == 1 else None)
+        self.kw = kw
+        frames = self.stall_after if self.opens == 1 else None
+        return CallbackStream(kw["callback"], kw["blocksize"], frames)
 
 
 @pytest.fixture
-def flaky_stream_factory():
-    holder = {}
-
-    def make(fail_after):
-        holder["f"] = FlakyStreamFactory(fail_after)
-        return holder["f"]
-
-    class Proxy:
-        def __call__(self, fail_after):
-            return make(fail_after)
-
-        @property
-        def opens(self):
-            return holder["f"].opens
-    return Proxy()
+def stalling_factory():
+    return StallingFactory
 
 
 @pytest.fixture
