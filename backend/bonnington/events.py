@@ -65,6 +65,29 @@ class MemoryEvent(_Event):
 
 
 @dataclass(frozen=True)
+class DashboardEvent(_Event):
+    """Everything the dashboard cards display."""
+
+    type: ClassVar[str] = "dashboard"
+    data: dict
+
+
+@dataclass(frozen=True)
+class FocusEvent(_Event):
+    """Which cards to light up because he is talking about them."""
+
+    type: ClassVar[str] = "focus"
+    cards: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ShowWindowEvent(_Event):
+    """Ask the window to un-hide itself (tray menu, or a summons while hidden)."""
+
+    type: ClassVar[str] = "show_window"
+
+
+@dataclass(frozen=True)
 class AmplitudeEvent(_Event):
     type: ClassVar[str] = "amplitude"
     value: float
@@ -74,4 +97,4 @@ class AmplitudeEvent(_Event):
 
 
 UIEvent = (StateEvent | MoodEvent | UserPartialEvent | UserFinalEvent | SubtitleLineEvent
-           | ClearSubtitlesEvent | AmplitudeEvent | MemoryEvent)
+           | ClearSubtitlesEvent | AmplitudeEvent | MemoryEvent | DashboardEvent | FocusEvent | ShowWindowEvent)

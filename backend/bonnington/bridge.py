@@ -7,11 +7,12 @@ import logging
 
 from websockets.asyncio.server import Server, ServerConnection, serve
 
-from .events import MoodEvent, StateEvent, UIEvent
+from .events import UIEvent
 
 log = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
+SNAPSHOT_TYPES = ("state", "mood", "dashboard", "focus")  # replayed to a window that connects later
 
 
 class UIBridge:
@@ -43,7 +44,7 @@ class UIBridge:
 
     def broadcast(self, event: UIEvent) -> None:
         msg = event.to_json()
-        if isinstance(event, (StateEvent, MoodEvent)):
+        if event.type in SNAPSHOT_TYPES:
             self._snapshot[event.type] = msg
         if not self._clients or self._loop is None:
             return

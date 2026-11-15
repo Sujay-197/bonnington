@@ -97,6 +97,7 @@ class Tracker:
         self._now = now
         self._detail = detail
         self.on_change: Callable[[str], None] | None = None   # told about every successful change
+        self.on_tool: Callable[[str, dict, str], None] | None = None   # told about every tool call
 
     def tool_specs(self) -> list[dict]:
         return _SPECS
@@ -160,13 +161,16 @@ class Tracker:
         args = {k: v for k, v in (args or {}).items() if v not in (None, "")}
         try:
             result = handler(args)
+        except KeyError as e:
+            result = f"ERROR: missing {e.args[0]}; ask the user for it"
+        except (ValueError, NotFound, Ambiguous) as e:
+            result = f"ERROR: {e}"
+        if not result.startswith("ERROR"):
             if name in _CHANGES and result != "Nothing to undo." and self.on_change is not None:
                 self.on_change(result)
-            return result
-        except KeyError as e:
-            return f"ERROR: missing {e.args[0]}; ask the user for it"
-        except (ValueError, NotFound, Ambiguous) as e:
-            return f"ERROR: {e}"
+        if self.on_tool is not None:
+            self.on_tool(name, args, result)
+        return result
 
     def _today(self) -> date:
         return self._now().date()
