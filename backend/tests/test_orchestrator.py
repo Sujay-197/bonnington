@@ -228,3 +228,15 @@ async def test_ordinary_turn_still_gets_a_followup_window(rig):
     rig.stt.finals.extend(["that's it, the exam is on the 24th", "and one more thing"])
     await rig.run_until_idle()
     assert rig.brain_calls == 2
+
+
+async def test_presenter_hooks_fire_with_user_text_and_full_reply(rig):
+    heard, replies = [], []
+    rig.orch.on_user_text = heard.append
+    rig.orch.on_reply_done = replies.append
+    rig.wake_on_frame(0, "britney")
+    rig.stt_final("what's left this week")
+    rig.brain_says("<mood:smug>One exam. Nine days.")
+    await rig.run_until_idle()
+    assert heard == ["what's left this week"]
+    assert replies == ["One exam. Nine days."]

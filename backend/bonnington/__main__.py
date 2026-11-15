@@ -28,10 +28,11 @@ async def _amain(state: dict) -> None:
     from .brain.llm import Brain
     from .bridge import UIBridge
     from .config import load_settings, save_settings
-    from .events import AmplitudeEvent, MemoryEvent
+    from .events import AmplitudeEvent
     from .hotkey import HotkeyListener
     from .lifecycle import LifecycleController
     from .orchestrator import Deps, Orchestrator
+    from .presenter import Presenter
     from .store import GrudgeStore
     from .stt import build_stt
     from .tts import TTSEngine, Utterance
@@ -45,7 +46,13 @@ async def _amain(state: dict) -> None:
     player = AudioPlayer(lambda v: bridge.broadcast(AmplitudeEvent(v)))
 
     tracker = build_tracker(settings, ROOT.parent)
-    tracker.on_change = lambda text: bridge.broadcast(MemoryEvent(text))
+    store = GrudgeStore(ROOT / "data" / "bonnington.db")
+    main_loop = asyncio.get_running_loop()
+    presenter = Presenter(tracker, bridge, britney_count=store.britney_count, mic=settings.mic_source,
+                          models_loaded=lambda: state.get("orch") is not None and state["orch"].models_loaded(),
+                          defer=lambda fn: main_loop.run_in_executor(None, fn))
+    tracker.on_change = presenter.changed
+    tracker.on_tool = presenter.tool_ran
 
     async def play_file(path: str) -> None:
         import soundfile as sf
@@ -72,12 +79,28 @@ async def _amain(state: dict) -> None:
     deps = Deps(source=mic, wake=SttWake(settings.wake_phrases, settings, min_similarity=settings.wake_similarity),
                 turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model, tracker=tracker),
                 tts=TTSEngine(settings), player=player, bridge=bridge,
-                store=GrudgeStore(ROOT / "data" / "bonnington.db"), settings=settings,
+                store=store, settings=settings,
                 play_file=play_file)
     orch = Orchestrator(deps)
+    state["orch"] = orch
+    orch.on_user_text = presenter.user_said
+    orch.on_reply_done = presenter.reply_done
     controller = LifecycleController(orch, mic, UIProcess(UI_EXE),
                                      idle_unload_s=settings.idle_unload_seconds)
     controller.always_listening = lambda: settings.always_listening
+    controller.keep_window = settings.keep_window_open
+    kick = orch.on_session_end
+
+    def session_ended() -> None:
+        if kick:
+            kick()
+        presenter.session_ended()
+    orch.on_session_end = session_ended
+
+    async def keep_fresh() -> None:
+        while True:                       # the clock, "in N days" and project idle times drift
+            presenter.refresh()
+            await asyncio.sleep(60)
     loop = asyncio.get_running_loop()
     hotkey = HotkeyListener(settings.hotkey, lambda: loop.call_soon_threadsafe(orch.trigger, "hotkey"))
 
@@ -96,7 +119,7 @@ async def _amain(state: dict) -> None:
     await bridge.start()
     hotkey.start()
     try:
-        await asyncio.gather(orch.run(), controller.run())
+        await asyncio.gather(orch.run(), controller.run(), keep_fresh())
     finally:
         hotkey.stop()
         await bridge.stop()

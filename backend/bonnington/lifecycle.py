@@ -55,6 +55,7 @@ class LifecycleController:
         self.on_level_change: Callable[[Level], None] | None = None
         # Hotkey-first (False): mic closed while dormant so Bluetooth buds keep full audio quality.
         self.always_listening: Callable[[], bool] = lambda: True
+        self.keep_window = False   # True: the dashboard window stays open while he is dormant
         orch.on_wake_requested = self.request_wake
         orch.on_session_end = self._kick_now
 
@@ -107,6 +108,8 @@ class LifecycleController:
         new = next_level(self.level, fullscreen=fullscreen, mic_busy=busy, manual_dnd=self._dnd,
                          wake_requested=woke, idle_s=idle_s, idle_unload_s=self.idle_unload_s)
         await self._transition(new)
+        if self.keep_window and self.level != Level.ASLEEP:
+            self.ui.show()                 # the dashboard stays up (and comes back if it was closed)
         await self._sync_mic()
 
     async def _sync_mic(self) -> None:
@@ -128,9 +131,14 @@ class LifecycleController:
         log.info("level %s -> %s", old.value, new.value)
         if old == Level.AWAKE:
             await self.orch.go_dormant()
-            self.ui.hide()
-        if new == Level.DORMANT:
+            if not self.keep_window:
+                self.ui.hide()
+        if new == Level.ASLEEP:
+            self.ui.hide()                 # a game or a call: get out of the way entirely
+        elif new == Level.DORMANT:
             self._override_probes = False
+            if self.keep_window:
+                self.ui.show()
         elif new == Level.AWAKE:
             self._awake_since = self.clock()
             self.ui.show()

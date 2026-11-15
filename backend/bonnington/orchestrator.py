@@ -82,6 +82,8 @@ class Orchestrator:
         self.last_interaction = clock()
         self.on_wake_requested: Callable[[], None] | None = None
         self.on_session_end: Callable[[], None] | None = None
+        self.on_user_text: Callable[[str], None] | None = None     # what the user just said
+        self.on_reply_done: Callable[[str], None] | None = None    # everything he said in reply
         self._phase: str | None = None
         self._pending: SummonKind | None = None
         self._note: str | None = None
@@ -202,6 +204,8 @@ class Orchestrator:
             return
         self.d.bridge.broadcast(UserFinalEvent(text))
         log.info("heard: %s", text)
+        if self.on_user_text:
+            self.on_user_text(text)
         msg = f"{self._note} {text}" if self._note else text
         self._note = None
         self._leaving = is_farewell(text)
@@ -282,6 +286,7 @@ class Orchestrator:
         d = self.d
         queue: asyncio.Queue = asyncio.Queue()
         producer = asyncio.create_task(self._produce(msg, queue))
+        spoken: list[str] = []
         try:
             while True:
                 item = await queue.get()
@@ -291,12 +296,15 @@ class Orchestrator:
                     raise item
                 self._set_state("speaking")
                 log.info("says: %s", item.text)
+                spoken.append(item.text)
                 self._line_id += 1
                 d.bridge.broadcast(SubtitleLineEvent(self._line_id, item.text, item.duration_ms,
                                                      list(item.word_offsets_ms)))
                 if not await d.player.play(item):
                     return  # interrupted
             self.last_interaction = self._clock()
+            if self.on_reply_done and spoken:
+                self.on_reply_done(" ".join(spoken))
             if self._leaving:              # they said goodbye: stop listening
                 self._end_session()
                 return

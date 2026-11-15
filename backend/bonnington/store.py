@@ -26,7 +26,7 @@ class GrudgeStore:
     def __init__(self, db_path: Path) -> None:
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(db_path)
+        self._db = sqlite3.connect(db_path, check_same_thread=False)  # the dashboard reads the count from a worker thread
         self._db.execute("CREATE TABLE IF NOT EXISTS summons (ts REAL NOT NULL, kind TEXT NOT NULL)")
         self._db.commit()
 

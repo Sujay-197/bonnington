@@ -151,3 +151,36 @@ async def test_no_sleep_during_active_conversation(fake_world):
     for _ in range(3):
         await fake_world.tick()
     assert c.level == Level.AWAKE
+
+
+def _keep(fake_world):
+    c = fake_world.controller()
+    c.keep_window = True
+    return c
+
+
+async def test_keep_window_shows_the_dashboard_while_dormant(fake_world):
+    c = _keep(fake_world)
+    await fake_world.tick()
+    assert c.level == Level.DORMANT and fake_world.ui.shown
+
+
+async def test_keep_window_survives_the_idle_unload(fake_world):
+    c = _keep(fake_world)
+    fake_world.wake()
+    await fake_world.tick()
+    fake_world.now = 601
+    await fake_world.tick()
+    assert c.level == Level.DORMANT and fake_world.orch.unloaded and fake_world.ui.shown
+
+
+async def test_keep_window_still_closes_for_a_game_and_returns_after(fake_world):
+    c = _keep(fake_world)
+    await fake_world.tick()
+    fake_world.fullscreen = True
+    await fake_world.tick()
+    await fake_world.tick()
+    assert c.level == Level.ASLEEP and not fake_world.ui.shown
+    fake_world.fullscreen = False
+    await fake_world.tick()
+    assert c.level == Level.DORMANT and fake_world.ui.shown

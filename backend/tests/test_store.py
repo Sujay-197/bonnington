@@ -28,3 +28,14 @@ def test_summons_last_10min_counts_window(tmp_path):
 def test_count_persists_across_instances(tmp_path):
     GrudgeStore(tmp_path / "b.db").record_summons("britney", datetime.now())
     assert GrudgeStore(tmp_path / "b.db").britney_count() == 1
+
+
+def test_count_can_be_read_from_another_thread(tmp_path):
+    import threading
+    st = GrudgeStore(tmp_path / "b.db")
+    st.record_summons("britney", datetime.now())
+    out = []
+    t = threading.Thread(target=lambda: out.append(st.britney_count()))
+    t.start()
+    t.join()
+    assert out == [1]
