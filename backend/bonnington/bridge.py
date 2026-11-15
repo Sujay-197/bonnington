@@ -18,7 +18,7 @@ class UIBridge:
     def __init__(self, port: int) -> None:
         self.port = port
         self.server: Server | None = None
-        self._clients: set[ServerConnection] = set()
+        self._clients: dict[ServerConnection, asyncio.Queue[str]] = {}
         self._snapshot: dict[str, str] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._changed = asyncio.Event()
@@ -47,23 +47,23 @@ class UIBridge:
             self._snapshot[event.type] = msg
         if not self._clients or self._loop is None:
             return
-        for ws in list(self._clients):
-            self._loop.call_soon_threadsafe(self._send, ws, msg)
-
-    def _send(self, ws: ServerConnection, msg: str) -> None:
-        async def go() -> None:
-            try:
-                await ws.send(msg)
-            except Exception:  # client went away; drop it
-                self._clients.discard(ws)
-        asyncio.ensure_future(go())
+        for q in list(self._clients.values()):
+            self._loop.call_soon_threadsafe(q.put_nowait, msg)
 
     async def _handle(self, ws: ServerConnection) -> None:
         for msg in self.last_state_snapshot():
             await ws.send(msg)
-        self._clients.add(ws)
+        q: asyncio.Queue[str] = asyncio.Queue()
+        self._clients[ws] = q
         self._changed.set()
+        async def pump() -> None:
+            while True:  # one queue per client keeps event order intact
+                await ws.send(await q.get())
+
+        sender = asyncio.create_task(pump())
         try:
-            await ws.wait_closed()
+            await asyncio.wait({sender, asyncio.create_task(ws.wait_closed())},
+                               return_when=asyncio.FIRST_COMPLETED)
         finally:
-            self._clients.discard(ws)
+            sender.cancel()
+            self._clients.pop(ws, None)

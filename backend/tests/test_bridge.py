@@ -30,3 +30,16 @@ async def test_broadcast_reaches_connected_client(unused_tcp_port):
 
 def test_broadcast_without_clients_does_not_raise():
     UIBridge(1).broadcast(StateEvent("idle"))
+
+
+async def test_many_events_arrive_in_order(unused_tcp_port):
+    from bonnington.events import AmplitudeEvent
+    b = UIBridge(unused_tcp_port)
+    await b.start()
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}") as ws:
+        await b.wait_for_clients(1)
+        for i in range(200):
+            b.broadcast(AmplitudeEvent(i / 1000))
+        got = [json.loads(await ws.recv())["value"] for _ in range(200)]
+    assert got == [round(i / 1000, 3) for i in range(200)]
+    await b.stop()
