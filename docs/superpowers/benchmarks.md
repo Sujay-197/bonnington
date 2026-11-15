@@ -35,3 +35,13 @@ Nemotron streams partials and is fast enough; Parakeet (offline, no partials) is
 | after go_dormant() | 0.3 GB | — |
 
 Warm LLM first token with TTS resident: ~550 ms. TTS load incl. CUDA-graph capture: ~17 s; LLM load: ~3 s.
+
+## Wake phrases (user's voice, Nord Buds mic, 20 s clips: 5x each phrase + 20 s normal talk)
+
+| Detector | "Hey Britney" | "Hey Bonnington" | False triggers | CPU |
+|---|---|---|---|---|
+| sherpa KWS zipformer 3.3M (best of threshold/boost sweep) | 2/5 | 4/5 | 0 | low |
+| **Nemotron streaming transcript + fuzzy match after a greeting, similarity 0.6** — **chosen** | **5/5** | **5/5** | **0** | ~30% of one core while listening |
+
+Nemotron hears "Britney" as "Brittany" and "Bonnington" as "Mornington"/"Boydington"; fuzzy matching absorbs that.
+The CPU cost only applies while the mic is open (a conversation, or "Always listening" on).
