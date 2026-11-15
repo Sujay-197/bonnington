@@ -143,3 +143,81 @@ def fake_oww():
 def rig(tmp_path):
     from rig import Rig
     return Rig(tmp_path)
+
+
+class FakeRegistry:
+    def __init__(self):
+        self._rows = []
+
+    def add(self, path, last_stop, last_start=1):
+        self._rows.append((path, last_start, last_stop))
+
+    def entries(self):
+        return list(self._rows)
+
+
+@pytest.fixture
+def fake_registry():
+    return FakeRegistry()
+
+
+class _FakeMic:
+    def __init__(self):
+        self.is_open = True
+
+    async def open(self):
+        self.is_open = True
+
+    async def close(self):
+        self.is_open = False
+
+
+class _FakeUI:
+    def __init__(self):
+        self.shown = False
+
+    def show(self):
+        self.shown = True
+
+    def hide(self):
+        self.shown = False
+
+
+class _FakeOrch:
+    def __init__(self, world):
+        self.world = world
+        self.unloaded = False
+        self.last_interaction = 0.0
+        self.on_wake_requested = None
+
+    async def go_dormant(self):
+        self.unloaded = True
+
+
+class FakeWorld:
+    def __init__(self):
+        self.fullscreen = False
+        self.mic_busy = False
+        self.now = 0.0
+        self.mic = _FakeMic()
+        self.ui = _FakeUI()
+        self.orch = _FakeOrch(self)
+        self._c = None
+
+    def controller(self):
+        from bonnington.lifecycle import LifecycleController
+        self._c = LifecycleController(self.orch, self.mic, self.ui, idle_unload_s=600,
+                                      probe=lambda: (self.fullscreen, self.mic_busy),
+                                      clock=lambda: self.now)
+        return self._c
+
+    def wake(self):
+        self._c.request_wake()
+
+    async def tick(self):
+        await self._c.step()
+
+
+@pytest.fixture
+def fake_world():
+    return FakeWorld()
