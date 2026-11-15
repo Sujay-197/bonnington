@@ -16,7 +16,8 @@ SUBJECTS = ["DBMS", "CN"]
 @pytest.mark.parametrize("text,cards,project", [
     ("What's left for this week?", {"week", "next"}, None),
     ("when is my next exam", {"week", "next"}, None),
-    ("how many tasks are overdue", {"counts", "week", "next"}, None),
+    ("how many tasks are overdue", {"counts", "tasks", "week", "next"}, None),
+    ("show me my calendar for the month", {"week", "next", "month"}, None),
     ("How am I doing in DBMS?", {"scores"}, None),
     ("I scored 38 out of 50", {"scores"}, None),
     ("which of my projects are dying", {"projects"}, None),
@@ -140,3 +141,12 @@ def test_user_speech_refreshes_the_dashboard_so_counters_are_live(world):
     n = len(bridge.of("dashboard"))
     p.user_said("okay so Britney, listen")
     assert len(bridge.of("dashboard")) == n + 1
+
+
+def test_adding_a_task_lights_the_tasks_card_and_an_exam_the_month(world):
+    tracker, bridge, p = world
+    tracker.on_tool = p.tool_ran
+    tracker.call("add_task", {"title": "Call the bank"})
+    assert "tasks" in bridge.of("focus")[-1].cards
+    tracker.call("add_exam", {"subject": "DBMS", "date": "24 Nov"})
+    assert "month" in bridge.of("focus")[-1].cards

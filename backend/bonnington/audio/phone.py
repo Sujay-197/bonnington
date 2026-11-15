@@ -123,6 +123,10 @@ class PhoneMicSource:
     def connected(self) -> bool:
         return self._phone is not None
 
+    def connect_hint(self) -> dict[str, str] | None:
+        """What to show on the dashboard while no phone is connected."""
+        return None if self.connected else {"url": self.url, "code": self.token}
+
     def mic_status(self) -> str:
         return "PHONE · CONNECTED" if self.connected else "PHONE · NOT CONNECTED"
 

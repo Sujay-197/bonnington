@@ -34,8 +34,27 @@ def _ago(days: int) -> str:
     return "TODAY" if days == 0 else f"{days}D AGO"
 
 
+MONTH_NAMES = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER",
+               "OCTOBER", "NOVEMBER", "DECEMBER"]
+MAX_TASKS = 6
+
+
+def _month(vault, today: date) -> dict[str, Any]:
+    """This month as a grid of days; exam days and deadline days are marked."""
+    import calendar
+    n_days = calendar.monthrange(today.year, today.month)[1]
+    exams = {e.on.day for e in vault.exams() if not e.done and (e.on.year, e.on.month) == (today.year, today.month)}
+    due = {r[0].day for r in vault.dated() if r[2] != "Exam" and (r[0].year, r[0].month) == (today.year, today.month)}
+    days = []
+    for d in range(1, n_days + 1):
+        kind = "exam" if d in exams else "due" if d in due else "today" if d == today.day else ""
+        days.append({"day": d, "kind": kind, "today": d == today.day})
+    return {"label": MONTH_NAMES[today.month - 1], "offset": date(today.year, today.month, 1).weekday(), "days": days}
+
+
 def build_dashboard(tracker: Tracker, *, britney_count: int = 0, focus_project: str | None = None,
-                    mic: str = "device", models_loaded: bool = False) -> dict[str, Any]:
+                    mic: str = "device", models_loaded: bool = False,
+                    mic_hint: dict[str, str] | None = None) -> dict[str, Any]:
     now = tracker._now()
     today = now.date()
     vault = tracker.vault
@@ -55,6 +74,10 @@ def build_dashboard(tracker: Tracker, *, britney_count: int = 0, focus_project: 
         nxt = {"text": upcoming[0][3], "when": "TODAY" if n == 0 else "TOMORROW" if n == 1 else f"IN {n} DAYS"}
 
     open_tasks = [t for t in vault.tasks() if not t.done]
+    dated_tasks = sorted((t for t in open_tasks if t.due), key=lambda t: t.due)
+    task_rows = [{"text": t.title, "when": when_label(t.due, today),
+                  "tone": "late" if t.due < today else "normal"} for t in dated_tasks]
+    task_rows += [{"text": t.title, "when": "", "tone": "normal"} for t in open_tasks if not t.due]
     all_scores = vault.scores()
     by_subject: dict[str, list] = {}
     for s in sorted(all_scores, key=lambda s: s.on, reverse=True):
@@ -84,6 +107,9 @@ def build_dashboard(tracker: Tracker, *, britney_count: int = 0, focus_project: 
         "counts": {"exams": sum(1 for e in vault.exams() if not e.done and e.on >= today),
                    "tasks": len(open_tasks), "late": sum(1 for r in dated if r[0] < today)},
         "scores": scores,
+        "tasks": task_rows[:MAX_TASKS],
+        "month": _month(vault, today),
+        "mic_hint": mic_hint,
         "projects": {"live": len(live), "idle": len(idle), "done": len(done), "hold": len(hold),
                      "rows": rows[:MAX_PROJECT_ROWS]},
         "focus": _focus(tracker, projects, focus_project),

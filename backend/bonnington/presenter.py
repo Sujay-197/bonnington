@@ -15,14 +15,16 @@ log = logging.getLogger(__name__)
 
 _WEEK = re.compile(r"\b(week|today|tonight|tomorrow|left|pending|due|deadline|deadlines|exam|exams|test|"
                    r"assignment|assignments|upcoming|schedule|calendar|overdue|late)\b")
+_MONTH = re.compile(r"(month|calendar)")
 _COUNTS = re.compile(r"\b(task|tasks|overdue|todo|to-do|reminder|reminders)\b")
 _SCORES = re.compile(r"\b(score|scores|scored|marks|percent|grade|grades|average)\b|\d\s*(?:out of|/)\s*\d")
 _PROJECTS = re.compile(r"\b(project|projects|dying|repo|repos|codebase|coding)\b")
 
 _TOOL_CARDS = {
-    "add_exam": {"week", "next"}, "add_assignment": {"week", "next"}, "add_task": {"counts", "week"},
-    "add_score": {"scores"}, "mark_done": {"week", "counts", "next"}, "remove_item": {"week", "counts", "next"},
-    "list_items": {"week", "counts"}, "subject_summary": {"scores"}, "project_status": {"projects"},
+    "add_exam": {"week", "next", "month"}, "add_assignment": {"week", "next", "month"},
+    "add_task": {"counts", "tasks", "week"}, "add_score": {"scores"},
+    "mark_done": {"week", "counts", "tasks", "next"}, "remove_item": {"week", "counts", "tasks", "next"},
+    "list_items": {"week", "counts", "tasks"}, "subject_summary": {"scores"}, "project_status": {"projects"},
     "project_detail": {"projects", "focus"}, "set_project_status": {"projects", "focus"},
 }
 
@@ -38,7 +40,9 @@ def pick_cards(text: str, subjects: list[str], projects: list[str]) -> tuple[set
     if _WEEK.search(low):
         cards |= {"week", "next"}
     if _COUNTS.search(low):
-        cards |= {"counts"}
+        cards |= {"counts", "tasks"}
+    if _MONTH.search(low):
+        cards |= {"month"}
     if _SCORES.search(low) or any(re.search(rf"\b{re.escape(s.lower())}\b", low) for s in subjects):
         cards |= {"scores"}
     squashed = _squash(text)
@@ -54,10 +58,12 @@ def pick_cards(text: str, subjects: list[str], projects: list[str]) -> tuple[set
 class Presenter:
     def __init__(self, tracker: Tracker, bridge: Any, *, britney_count: Callable[[], int] = lambda: 0,
                  mic: Any = "device", models_loaded: Callable[[], bool] = lambda: False,
-                 defer: Callable[[Callable[[], None]], Any] | None = None) -> None:
+                 defer: Callable[[Callable[[], None]], Any] | None = None,
+                 mic_hint: Callable[[], dict | None] = lambda: None) -> None:
         self.tracker, self.bridge = tracker, bridge
         self._britney, self._mic, self._models = britney_count, mic, models_loaded
         self._defer = defer or (lambda fn: fn())     # the app passes a thread pool: scans must not block audio
+        self._mic_hint = mic_hint      # how to connect the phone mic, while it is not connected
         self._cards: set[str] = set()
         self._project: str | None = None
 
@@ -69,7 +75,7 @@ class Presenter:
         try:
             mic = self._mic() if callable(self._mic) else self._mic
             data = build_dashboard(self.tracker, britney_count=self._britney(), focus_project=self._project,
-                                   mic=mic, models_loaded=self._models())
+                                   mic=mic, models_loaded=self._models(), mic_hint=self._mic_hint())
         except Exception:  # the dashboard is a view; it must never take the assistant down
             log.exception("dashboard refresh failed")
             return

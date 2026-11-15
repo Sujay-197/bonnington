@@ -50,7 +50,8 @@ async def _amain(state: dict) -> None:
     main_loop = asyncio.get_running_loop()
     presenter = Presenter(tracker, bridge, britney_count=store.britney_count, mic=lambda: state["mic"].mic_status() if "mic" in state else "",
                           models_loaded=lambda: state.get("orch") is not None and state["orch"].models_loaded(),
-                          defer=lambda fn: main_loop.run_in_executor(None, fn))
+                          defer=lambda fn: main_loop.run_in_executor(None, fn),
+                          mic_hint=lambda: getattr(state.get("mic"), "connect_hint", lambda: None)())
     tracker.on_change = presenter.changed
     tracker.on_tool = presenter.tool_ran
 

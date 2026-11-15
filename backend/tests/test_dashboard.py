@@ -112,3 +112,44 @@ def test_a_broken_project_scan_does_not_break_the_dashboard(tmp_path):
     t = Tracker(Vault(tmp_path / "v"), projects=boom, now=lambda: NOW)
     d = build_dashboard(t)
     assert d["projects"]["rows"] == [] and d["focus"] is None
+
+
+def test_open_tasks_are_listed_dated_first(tracker):
+    v = tracker.vault
+    v.add_task("Call the bank")
+    v.add_task("Renew passport", date(2026, 12, 1))
+    v.add_task("Old chore", date(2026, 11, 10))
+    v.add_task("Finished thing")
+    v.mark_done("task", "finished thing")
+    d = build_dashboard(tracker)
+    assert d["tasks"] == [
+        {"text": "Old chore", "when": "5D LATE", "tone": "late"},
+        {"text": "Renew passport", "when": "TUE 1 · 16D", "tone": "normal"},
+        {"text": "Call the bank", "when": "", "tone": "normal"},
+    ]
+
+
+def test_month_grid_marks_today_exams_and_deadlines(tracker):
+    v = tracker.vault
+    v.add_exam("DBMS", date(2026, 11, 24))
+    v.add_assignment("CN", "Lab report 3", date(2026, 11, 20))
+    v.add_task("Renew passport", date(2026, 12, 1))          # next month: not on this grid
+    v.add_exam("Old", date(2026, 11, 3))
+    v.mark_done("exam", "old")                                # done: not marked
+    m = build_dashboard(tracker)["month"]
+    assert m["label"] == "NOVEMBER" and m["offset"] == 6      # 1 Nov 2026 is a Sunday; weeks start Monday
+    assert len(m["days"]) == 30
+    kinds = {d["day"]: d["kind"] for d in m["days"] if d["kind"]}
+    assert kinds == {15: "today", 20: "due", 24: "exam"}
+
+
+def test_an_exam_today_shows_as_exam_not_just_today(tracker):
+    tracker.vault.add_exam("DBMS", date(2026, 11, 15))
+    kinds = {d["day"]: d["kind"] for d in build_dashboard(tracker)["month"]["days"] if d["kind"]}
+    assert kinds == {15: "exam"}
+
+
+def test_mic_hint_is_passed_through(tracker):
+    assert build_dashboard(tracker)["mic_hint"] is None
+    d = build_dashboard(tracker, mic_hint={"url": "https://192.168.1.3:8766", "code": "274852"})
+    assert d["mic_hint"] == {"url": "https://192.168.1.3:8766", "code": "274852"}
