@@ -63,3 +63,12 @@ async def test_busy_event_loop_is_not_mistaken_for_a_stall(stalling_factory):
         if task.done():
             break
     assert fac.opens == 1
+
+
+async def test_slow_first_audio_after_open_is_not_a_stall(stalling_factory):
+    # Bluetooth buds take a couple of seconds to switch into headset mode before audio flows.
+    fac = stalling_factory(stall_after=None, start_delay=0.3)
+    src = MicSource(stream_factory=fac, stall_seconds=0.1, open_grace_seconds=1.0)
+    await src.open()
+    await _take(src, 3)
+    assert fac.opens == 1

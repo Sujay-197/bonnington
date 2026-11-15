@@ -67,9 +67,9 @@ def fake_output_stream():
 class CallbackStream:
     """Mimics sounddevice.InputStream in callback mode. Delivers `frames` blocks (None = forever) then goes silent."""
 
-    def __init__(self, callback, blocksize, frames=None):
+    def __init__(self, callback, blocksize, frames=None, start_delay=0.0):
         import threading
-        self.callback, self.blocksize, self.frames = callback, blocksize, frames
+        self.callback, self.blocksize, self.frames, self.start_delay = callback, blocksize, frames, start_delay
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
 
@@ -78,6 +78,7 @@ class CallbackStream:
 
         import numpy as np
         n = 0
+        time.sleep(self.start_delay)
         while not self._stop.is_set() and (self.frames is None or n < self.frames):
             self.callback(np.zeros((self.blocksize, 1), np.int16), self.blocksize, None, None)
             n += 1
@@ -98,14 +99,14 @@ class CallbackStream:
 class StallingFactory:
     """First stream stalls after `stall_after` blocks; later streams are healthy."""
 
-    def __init__(self, stall_after):
-        self.stall_after, self.opens, self.kw = stall_after, 0, {}
+    def __init__(self, stall_after, start_delay=0.0):
+        self.stall_after, self.opens, self.kw, self.start_delay = stall_after, 0, {}, start_delay
 
     def __call__(self, **kw):
         self.opens += 1
         self.kw = kw
         frames = self.stall_after if self.opens == 1 else None
-        return CallbackStream(kw["callback"], kw["blocksize"], frames)
+        return CallbackStream(kw["callback"], kw["blocksize"], frames, self.start_delay)
 
 
 @pytest.fixture

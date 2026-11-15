@@ -35,10 +35,11 @@ class MicSource:
     (unplugged device, a Bluetooth headset stuck switching profiles) the stream is dropped and reopened."""
 
     def __init__(self, device: int | str | None = None, retry_seconds: float = 5.0,
-                 stall_seconds: float = 2.0, stream_factory=None) -> None:
+                 stall_seconds: float = 2.0, open_grace_seconds: float = 6.0, stream_factory=None) -> None:
         self.device = device
         self.retry_seconds = retry_seconds
         self.stall_seconds = stall_seconds
+        self.open_grace_seconds = open_grace_seconds  # Bluetooth needs a few seconds to switch profile
         self.stream_factory = stream_factory or _default_stream_factory
         self._stream = None
         self._want_open = asyncio.Event()
@@ -97,7 +98,8 @@ class MicSource:
                 if self._stream is None:
                     pending = np.zeros(0, np.int16)
                     self._stream = await asyncio.to_thread(self._make_stream)
-                    self._last_audio = time.monotonic()
+                    # count the first audio as due within the open grace period, not the stall window
+                    self._last_audio = time.monotonic() + max(0.0, self.open_grace_seconds - self.stall_seconds)
                 if self._queue.empty():
                     try:
                         await asyncio.wait_for(self._wait_for_audio(), self.stall_seconds)
