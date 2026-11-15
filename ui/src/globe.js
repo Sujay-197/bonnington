@@ -23,6 +23,7 @@ export function createGlobe(canvas, getState, count = 9000) {
   }
   resize();
   window.addEventListener("resize", resize);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(resize).observe(canvas);   // the cell resizes with the cards
 
   const P = [];
   for (let i = 0; i < count; i++) {
@@ -48,18 +49,34 @@ export function createGlobe(canvas, getState, count = 9000) {
     amp += (tAmp - amp) * 0.04 * k;
 
     ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, 0, W, H);
-    const R = Math.min(W, H) * 0.37 * scale, cx = W / 2, cy = H / 2;
+    const R = Math.min(W, H) * 0.33 * scale, cx = W / 2, cy = H / 2;
     const c = col.map(Math.round).join(",");
     const g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.5);
     g.addColorStop(0, `rgba(${c},0.06)`); g.addColorStop(1, `rgba(${c},0)`);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    // Two quiet rings and four tick marks: the only motion besides the globe itself.
+    ctx.lineWidth = 0.6;
+    ctx.strokeStyle = `rgba(${c},0.16)`;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([2, 7]);
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.34, t * 0.03, t * 0.03 + Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = `rgba(${c},0.4)`;
+    ctx.beginPath();
+    for (let q = 0; q < 4; q++) {
+      const a = q * Math.PI / 2 + t * 0.03;
+      ctx.moveTo(cx + Math.cos(a) * R * 1.22, cy + Math.sin(a) * R * 1.22);
+      ctx.lineTo(cx + Math.cos(a) * R * 1.3, cy + Math.sin(a) * R * 1.3);
+    }
+    ctx.stroke();
 
     const ca = Math.cos(rot), sa = Math.sin(rot), tl = 0.35, ct = Math.cos(tl), st = Math.sin(tl), ts = t * 0.25;
     for (const p of P) {
       const ph = p[0], th = p[1];
       const n = Math.sin(ph * 3 + ts * 0.7) * Math.cos(th * 2 - ts * 0.5) + Math.sin(th * 4 + ph * 2 + ts) * 0.4;
       const band = Math.exp(-Math.pow(ph - 2.2 + 0.3 * Math.sin(th * 2 + ts * 0.4), 2) * 6);
-      const r = R * (1 + 0.07 * n + amp * Math.sin(th * 3 + ph * 2 + t * 1.6) * (0.4 + band) + (p[2] - 0.5) * 0.05);
+      const r = R * (1 + 0.045 * n + amp * Math.sin(th * 3 + ph * 2 + t * 1.6) * (0.4 + band) + (p[2] - 0.5) * 0.05);
       const x = r * Math.sin(ph) * Math.cos(th), y = r * Math.cos(ph), z = r * Math.sin(ph) * Math.sin(th);
       const x2 = x * ca - z * sa, z2 = x * sa + z * ca;
       const y2 = y * ct - z2 * st, z3 = y * st + z2 * ct;

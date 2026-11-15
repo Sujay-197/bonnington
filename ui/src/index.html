@@ -5,28 +5,115 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bonnington</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: default; user-select: none; }
-  #globe { position: absolute; inset: 0 0 18% 0; width: 100%; height: 82%; display: block; }
-  #subs { position: absolute; left: 0; right: 0; bottom: 7%; text-align: center; padding: 0 12%;
-          color: #fff; font-family: Georgia, "Times New Roman", serif; font-size: clamp(13px, 1.1vw, 22px);
-          line-height: 1.55; min-height: 3.2em; }
-  #user { position: absolute; left: 0; right: 0; bottom: 7%; text-align: center; padding: 0 12%;
-          color: #5F5E5A; font-family: Georgia, "Times New Roman", serif; font-size: clamp(12px, 1vw, 20px);
-          transition: opacity .3s; }
-  #memory { position: absolute; top: 34px; right: 22px; max-width: 46%; padding: 8px 14px; border: 1px solid #2c2c2a;
-            border-radius: 10px; background: rgba(12,12,12,.85); color: #b4b2a9; font: 12px/1.45 "Segoe UI", system-ui, sans-serif;
-            opacity: 0; transform: translateY(-6px); transition: opacity .35s, transform .35s; pointer-events: none; }
-  #memory.show { opacity: 1; transform: none; }
-  #memory b { display: block; color: #fac775; font-weight: 500; font-size: 11px; letter-spacing: .06em; margin-bottom: 2px; }
-  #drag { position: absolute; top: 0; left: 0; right: 0; height: 28px; }
+  :root { --line: #2c2c2a; --edge: #b4b2a9; --mu: #888780; --dim: #5f5e5a; --amber: #fac775; --amber-d: #ba7517;
+          --red: #f09595; --green: #97c459; font-size: clamp(11px, 0.82vw, 15px); }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: default; user-select: none;
+               color: #d3d1c7; font-family: "Cascadia Mono", Consolas, "Courier New", monospace; }
+  #app { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.9rem; padding: 0.8rem 1.1rem 0.6rem; }
+
+  .top { display: flex; align-items: center; gap: 1rem; letter-spacing: .08em; color: var(--mu); font-size: 0.92rem; }
+  .top b { color: #fff; font-weight: 500; font-size: 1.1rem; letter-spacing: .16em; }
+  .top .sp { flex: 1; align-self: stretch; }
+  .wc { display: flex; gap: 0.35rem; }
+  .wc button { width: 2.1rem; height: 2.1rem; border: 1px solid var(--line); background: #000; padding: 0; position: relative; cursor: pointer; }
+  .wc button:hover { border-color: var(--edge); }
+  .wc button:before, .wc button:after { content: ""; position: absolute; background: var(--edge); }
+  #w-min:before { left: 30%; right: 30%; top: 50%; height: 1px; }
+  #w-full:before { left: 30%; right: 30%; top: 30%; bottom: 30%; background: none; border: 1px solid var(--edge); }
+  #w-hide:before, #w-hide:after { left: 28%; right: 28%; top: 50%; height: 1px; }
+  #w-hide:before { transform: rotate(45deg); } #w-hide:after { transform: rotate(-45deg); }
+
+  .grid { flex: 1; min-height: 0; display: grid; gap: 1rem;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); grid-template-areas: "l g r"; }
+  .l { grid-area: l; } .g { grid-area: g; } .r { grid-area: r; }
+  .col { display: flex; flex-direction: column; gap: 1rem; min-width: 0; min-height: 0; }
+
+  .card { position: relative; border: 1px solid var(--line); padding: 0.8rem 1rem; min-width: 0;
+          transition: border-color .35s, background .35s; }
+  .card:before, .card:after { content: ""; position: absolute; width: 0.7rem; height: 0.7rem; border: 1px solid var(--edge); transition: border-color .35s; }
+  .card:before { left: -1px; top: -1px; border-right: 0; border-bottom: 0; }
+  .card:after { right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
+  .card.on { border-color: var(--amber-d); background: #0d0a04; }
+  .card.on:before, .card.on:after { border-color: var(--amber); }
+  .lab { font-size: 0.9rem; letter-spacing: .12em; color: #fff; display: flex; justify-content: space-between; margin-bottom: 0.55rem; transition: color .35s; }
+  .lab span:last-child { color: var(--dim); }
+  .card.on .lab span:first-child { color: var(--amber); }
+  .sublab { font-size: 0.85rem; letter-spacing: .12em; color: var(--dim); margin: 0.7rem 0 0.2rem; }
+  .big { font-family: "Segoe UI", system-ui, sans-serif; font-size: 2.1rem; font-weight: 500; color: #fff; line-height: 1.15; }
+  .big.mid { font-size: 1.45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .big small { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.9rem; font-weight: 400; color: var(--mu); letter-spacing: .06em; }
+  .when { color: var(--amber); letter-spacing: .1em; margin-top: 0.2rem; }
+  .row { display: flex; justify-content: space-between; gap: 0.7rem; padding: 0.3rem 0; border-top: 1px solid #1c1c1a; white-space: nowrap; }
+  .row span:first-child { overflow: hidden; text-overflow: ellipsis; }
+  .mu { color: var(--mu); } .soon { color: var(--amber); } .late { color: var(--red); }
+  .empty { color: var(--dim); padding: 0.3rem 0; }
+  .stat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+  .stat div { border-left: 2px solid #444441; padding-left: 0.7rem; }
+  .stat div.ok { border-color: var(--green); } .stat div.bad { border-color: var(--red); }
+  .stat b { display: block; font-family: "Segoe UI", system-ui, sans-serif; font-size: 1.8rem; font-weight: 500; color: #fff; line-height: 1.1; }
+  .stat span { font-size: 0.85rem; color: var(--mu); letter-spacing: .06em; }
+  .bars { display: flex; align-items: flex-end; gap: 0.8rem; height: 3.4rem; margin: 1.4rem 0 0.6rem; }
+  .bars div { flex: 1; max-width: 4.5rem; position: relative; min-height: 2px; background: #444441; }
+  .bars div.ok { background: var(--green); } .bars div.warn { background: var(--amber); }
+  .bars div span { position: absolute; top: -1.3rem; left: 0; right: 0; text-align: center; font-size: 0.85rem; color: #d3d1c7; white-space: nowrap; }
+
+  .gl { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  #globe { flex: 1; min-height: 9rem; width: 100%; display: block; }
+  .say { position: relative; min-height: 4rem; margin: 0.4rem 0 0.8rem; }
+  #subs div:not(:last-child) { display: none; }   /* one line at a time: the cards need the room */
+  #subs, #user { position: absolute; left: 0; right: 0; top: 0; text-align: center; padding: 0 0.6rem;
+                 font-family: Georgia, "Times New Roman", serif; line-height: 1.5; }
+  #subs { color: #fff; font-size: clamp(13px, 1.15rem, 22px); }
+  #user { color: var(--dim); font-size: clamp(12px, 1.05rem, 20px); transition: opacity .3s; }
+  #memory { position: absolute; top: 0.3rem; left: 50%; transform: translateX(-50%); background: #000; border: 1px solid var(--amber-d);
+            padding: 0.4rem 0.8rem; font-size: 0.9rem; letter-spacing: .06em; opacity: 0; transition: opacity .35s;
+            white-space: nowrap; max-width: 96%; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  #memory.show { opacity: 1; }
+  #memory b { color: var(--amber); font-weight: 500; margin-right: 0.6rem; }
+  .bot { display: flex; justify-content: space-between; gap: 1rem; color: var(--dim); font-size: 0.85rem; letter-spacing: .06em; white-space: nowrap; overflow: hidden; }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "g g" "l r"; grid-template-rows: minmax(12rem, 1fr) auto; overflow-y: auto; }
+    .hidem { display: none; }
+  }
+  @media (max-width: 560px), (max-height: 420px) {
+    .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "g"; grid-template-rows: 1fr; overflow: hidden; }
+    .l, .r, .bot, #card-next { display: none; }
+  }
 </style>
 </head>
 <body>
-<div id="drag" data-tauri-drag-region></div>
-<canvas id="globe"></canvas>
-<div id="subs"></div>
-<div id="user"></div>
-<div id="memory" role="status"><b>Memory updated</b><span id="memory-text"></span></div>
+<div id="app">
+  <div class="top" data-tauri-drag-region>
+    <b data-tauri-drag-region>BONNINGTON</b><span class="hidem" data-tauri-drag-region>// TRACKER ONLINE</span>
+    <span class="sp" data-tauri-drag-region></span>
+    <span class="hidem" id="t-date" data-tauri-drag-region></span>
+    <span class="hidem" id="t-brit" data-tauri-drag-region></span>
+    <div class="wc">
+      <button id="w-min" aria-label="Minimise" title="Minimise"></button>
+      <button id="w-full" aria-label="Full screen" title="Full screen (F11)"></button>
+      <button id="w-hide" aria-label="Hide" title="Hide (he returns when summoned)"></button>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="col l">
+      <div class="card" id="card-week"><div class="lab"><span>THIS WEEK</span><span>A</span></div><div class="body"></div></div>
+      <div class="card" id="card-counts"><div class="lab"><span>COUNTS</span><span>B</span></div><div class="body"></div></div>
+      <div class="card" id="card-scores"><div class="lab"><span>SCORES</span><span>C</span></div><div class="body"></div></div>
+    </div>
+    <div class="g gl">
+      <canvas id="globe"></canvas>
+      <div id="memory" role="status"><b>MEMORY UPDATED</b><span id="memory-text"></span></div>
+      <div class="say"><div id="subs"></div><div id="user"></div></div>
+      <div class="card" id="card-next"><div class="lab"><span>NEXT UP</span><span></span></div><div class="body"></div></div>
+    </div>
+    <div class="col r">
+      <div class="card" id="card-projects"><div class="lab"><span>PROJECTS</span><span>D</span></div><div class="body"></div></div>
+      <div class="card" id="card-focus"><div class="lab"><span>IN FOCUS</span><span>E</span></div><div class="body"></div></div>
+    </div>
+  </div>
+  <div class="bot"><span id="b-left"></span><span id="b-right"></span></div>
+</div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

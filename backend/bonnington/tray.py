@@ -21,10 +21,13 @@ class Tray:
     def __init__(self, *, get_dnd: Callable[[], bool], set_dnd: Callable[[bool], None],
                  get_headphones: Callable[[], bool], set_headphones: Callable[[bool], None],
                  get_always_listening: Callable[[], bool], set_always_listening: Callable[[bool], None],
-                 on_quit: Callable[[], None], phone_url: str | None = None) -> None:
+                 on_quit: Callable[[], None], phone_url: str | None = None,
+                 on_show: Callable[[], None] | None = None) -> None:
         self._level = "dormant"
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: f"Bonnington: {self._level}", None, enabled=False),
+            pystray.MenuItem("Show window", lambda: on_show and on_show(), default=True,
+                             visible=on_show is not None),
             pystray.MenuItem("Do not disturb", lambda: set_dnd(not get_dnd()),
                              checked=lambda _: get_dnd()),
             pystray.MenuItem('Always listening ("Hey Britney")',

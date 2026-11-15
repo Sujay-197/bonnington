@@ -1,9 +1,10 @@
 // Pure reducer: backend events -> UI state. `now` is passed in so it stays testable.
 const MOODS = ["neutral", "amused", "annoyed", "smug", "serious", "disappointed"];
+export const CARDS = ["week", "counts", "scores", "next", "projects", "focus"];
 const PHASES = ["idle", "listening", "thinking", "speaking", "waking"];
 
 export function initialState() {
-  return { phase: "idle", mood: "neutral", userText: "", userTextAt: null, lines: [], amplitude: 0, memory: null };
+  return { phase: "idle", mood: "neutral", userText: "", userTextAt: null, lines: [], amplitude: 0, memory: null, dash: null, cards: [] };
 }
 
 export function reduce(state, ev, now) {
@@ -23,6 +24,10 @@ export function reduce(state, ev, now) {
     }
     case "clear_subtitles":
       return { ...state, lines: [] };
+    case "dashboard":
+      return ev.data && typeof ev.data === "object" ? { ...state, dash: ev.data } : state;
+    case "focus":
+      return { ...state, cards: (ev.cards || []).filter(c => CARDS.includes(c)) };
     case "memory":
       return { ...state, memory: { text: String(ev.text || ""), at: now } };
     case "amplitude":

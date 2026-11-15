@@ -83,6 +83,8 @@ async def _amain(state: dict) -> None:
                 play_file=play_file)
     orch = Orchestrator(deps)
     state["orch"] = orch
+    from .events import ShowWindowEvent
+    state["show_window"] = lambda: bridge.broadcast(ShowWindowEvent())
     orch.on_user_text = presenter.user_said
     orch.on_reply_done = presenter.reply_done
     controller = LifecycleController(orch, mic, UIProcess(UI_EXE),
@@ -149,7 +151,7 @@ def main() -> None:
                 set_headphones=state["set_headphones"],
                 get_always_listening=lambda: settings.always_listening,
                 set_always_listening=state["set_always_listening"], on_quit=lambda: None,
-                phone_url=state.get("phone_url"))
+                phone_url=state.get("phone_url"), on_show=state["show_window"])
     controller.on_level_change = lambda lvl: tray.set_level(lvl.value)
     tray.run()  # returns on Quit; the daemon worker dies with the process
 
