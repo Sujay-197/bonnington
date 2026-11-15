@@ -1,74 +1,84 @@
-"""Wake phrases ("Hey Britney", "Hey Bonnington") via sherpa-onnx's open-vocabulary keyword spotter on the CPU."""
+"""Wake phrases ("Hey Britney", "Hey Bonnington") spotted in the streaming Nemotron transcript.
+
+The STT hears "Britney" as "Brittany" and "Bonnington" as "Mornington"/"Boydington", so the word after a
+greeting is fuzzy-matched against each name. Requiring the greeting keeps "Brittany Spears" from waking him.
+"""
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
+import re
+from difflib import SequenceMatcher
 from typing import Literal
 
 import numpy as np
 
 WakeName = Literal["britney", "bonnington"]
 FRAME_S = 0.08
+GREETINGS = {"hey", "hi", "okay", "ok", "yo", "oi"}
+MAX_WORDS = 30  # bound the running transcript
 
 
-def keyword_line(tokens: list[str], label: str, boost: float, threshold: float) -> str:
-    return f"{' '.join(tokens)} :{boost} #{threshold} @{label}"
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z']+", text.lower())
 
 
-class _SherpaSpotter:
-    def __init__(self, phrases: dict[str, str], model_dir: str, boost: float, threshold: float) -> None:
-        import sentencepiece as spm
-        import sherpa_onnx
+def match_wake(text: str, phrases: dict[str, str], min_similarity: float = 0.7) -> WakeName | None:
+    targets = {name: phrase.split()[-1].lower() for name, phrase in phrases.items()}
+    words = _words(text)
+    best: tuple[float, str] | None = None
+    for greet, cand in zip(words, words[1:]):
+        if greet not in GREETINGS:
+            continue
+        for name, target in targets.items():
+            score = SequenceMatcher(None, cand, target).ratio()
+            if score >= min_similarity and (best is None or score > best[0]):
+                best = (score, name)
+    return best[1] if best else None  # type: ignore[return-value]
 
-        d = Path(model_dir)
-        sp = spm.SentencePieceProcessor(model_file=str(d / "bpe.model"))
-        lines = [keyword_line(sp.encode(p.upper(), out_type=str), name, boost, threshold)
-                 for name, p in phrases.items()]
-        kw_file = Path(tempfile.gettempdir()) / "bonnington_keywords.txt"
-        kw_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        def pick(stem: str) -> str:
-            return str(next(d.glob(f"{stem}-*.int8.onnx")))
+class _NemotronStream:
+    """A dedicated streaming recognizer for wake spotting (CPU, loaded on first use)."""
 
-        self._kws = sherpa_onnx.KeywordSpotter(
-            tokens=str(d / "tokens.txt"), encoder=pick("encoder"), decoder=pick("decoder"),
-            joiner=pick("joiner"), keywords_file=str(kw_file), num_threads=1)
-        self._stream = self._kws.create_stream()
+    def __init__(self, settings) -> None:
+        from .stt import SherpaSTT
+        self._stt = SherpaSTT(settings, num_threads=2)
 
-    def feed(self, frame: np.ndarray) -> str:
-        self._stream.accept_waveform(16000, frame.astype(np.float32) / 32768.0)
-        hit = ""
-        while self._kws.is_ready(self._stream):
-            self._kws.decode_stream(self._stream)
-            r = self._kws.get_result(self._stream)
-            if r:
-                hit = r
-                self._kws.reset_stream(self._stream)
-        return hit
+    def feed(self, frame: np.ndarray) -> str | None:
+        if not self._stt.is_loaded:
+            self._stt.load()
+            self._stt.start_turn()
+        return self._stt.feed(frame)
 
     def reset(self) -> None:
-        self._stream = self._kws.create_stream()
+        if self._stt.is_loaded:
+            self._stt.start_turn()
 
 
-class KeywordWake:
-    def __init__(self, phrases: dict[str, str], model_dir: str = "", *, boost: float = 1.5,
-                 threshold: float = 0.25, cooldown_s: float = 2.0, spotter=None) -> None:
-        self._names = set(phrases)
+class SttWake:
+    def __init__(self, phrases: dict[str, str], settings=None, *, min_similarity: float = 0.7,
+                 cooldown_s: float = 2.0, recognizer=None) -> None:
+        self.phrases = phrases
+        self.min_similarity = min_similarity
         self._cooldown_frames = int(round(cooldown_s / FRAME_S))
         self._quiet = 0
-        self._spotter = spotter or _SherpaSpotter(phrases, model_dir, boost, threshold)
+        self._rec = recognizer or _NemotronStream(settings)
 
     def reset(self) -> None:
         self._quiet = 0
-        self._spotter.reset()
+        self._rec.reset()
 
     def feed(self, frame: np.ndarray) -> WakeName | None:
-        hit = self._spotter.feed(frame)
+        text = self._rec.feed(frame)
         if self._quiet > 0:
             self._quiet -= 1
             return None
-        if hit not in self._names:
+        if not text:
             return None
-        self._quiet = self._cooldown_frames - 1
-        return hit  # type: ignore[return-value]
+        hit = match_wake(text, self.phrases, self.min_similarity)
+        if hit:
+            self._rec.reset()
+            self._quiet = self._cooldown_frames - 1
+            return hit
+        if len(_words(text)) > MAX_WORDS:
+            self._rec.reset()
+        return None
