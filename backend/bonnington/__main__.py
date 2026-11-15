@@ -90,7 +90,8 @@ async def _amain(state: dict) -> None:
     orch.on_models_changed = presenter.refresh
     orch.on_user_text = presenter.user_said
     orch.on_reply_done = presenter.reply_done
-    controller = LifecycleController(orch, mic, UIProcess(UI_EXE),
+    state["ui"] = UIProcess(UI_EXE)
+    controller = LifecycleController(orch, mic, state["ui"],
                                      idle_unload_s=settings.idle_unload_seconds)
     controller.always_listening = lambda: settings.always_listening
     controller.keep_window = settings.keep_window_open
@@ -156,7 +157,10 @@ def main() -> None:
                 set_always_listening=state["set_always_listening"], on_quit=lambda: None,
                 phone_url=state.get("phone_url"), on_show=state["show_window"])
     controller.on_level_change = lambda lvl: tray.set_level(lvl.value)
-    tray.run()  # returns on Quit; the daemon worker dies with the process
+    try:
+        tray.run()  # returns on Quit; the daemon worker dies with the process
+    finally:
+        state["ui"].hide()  # close the window too, or it is left behind with nothing feeding it
 
 
 if __name__ == "__main__":
