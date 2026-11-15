@@ -12,6 +12,7 @@ from .persona import build_system_prompt
 
 KEEP_ALIVE = "30m"
 MAX_HISTORY = 20
+NUM_CTX = 4096  # short conversations; keeps the KV cache small so TTS + LLM fit in 16 GB
 
 
 class BrainUnavailable(Exception):
@@ -37,7 +38,7 @@ class Brain:
 
     async def _call(self, **kw: Any) -> Any:
         try:
-            return await self.client.chat(model=self.model, **kw)
+            return await self.client.chat(model=self.model, options={"num_ctx": NUM_CTX}, **kw)
         except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError) as e:
             raise BrainUnavailable(f"Ollama is not reachable: {e}") from e
         except ollama.ResponseError as e:

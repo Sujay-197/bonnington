@@ -1,3 +1,5 @@
+import pytest
+
 from bonnington.tts import estimate_word_offsets
 
 
@@ -17,3 +19,19 @@ def test_single_word():
 
 def test_empty_text():
     assert estimate_word_offsets("   ", 500) == []
+
+
+@pytest.mark.hw
+def test_synth_speaks_in_reference_voice():
+    import os
+    from pathlib import Path
+
+    from bonnington.config import Settings
+    from bonnington.tts import TTSEngine
+    os.chdir(Path(__file__).resolve().parents[2])
+    tts = TTSEngine(Settings())
+    tts.load()
+    u = tts.synth("Britney. Again.")
+    assert 500 < u.duration_ms < 4000 and u.word_offsets_ms[0] == 0
+    tts.unload()
+    assert not tts.is_loaded

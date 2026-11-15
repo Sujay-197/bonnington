@@ -153,11 +153,12 @@ dependencies = [
 
 [package.optional-dependencies]
 ml = [
+    { name = "faster-qwen3-tts" },
     { name = "openwakeword" },
-    { name = "qwen-tts" },
     { name = "sherpa-onnx" },
     { name = "soundfile" },
     { name = "torch" },
+    { name = "transformers" },
 ]
 
 [package.dev-dependencies]
@@ -168,6 +169,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "faster-qwen3-tts", marker = "extra == 'ml'" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "ollama", specifier = ">=0.6" },
@@ -176,11 +178,11 @@ requires-dist = [
     { name = "pillow", specifier = ">=11" },
     { name = "pynput", specifier = ">=1.8" },
     { name = "pystray", specifier = ">=0.19" },
-    { name = "qwen-tts", marker = "extra == 'ml'" },
     { name = "sherpa-onnx", marker = "extra == 'ml'", specifier = ">=1.12" },
     { name = "sounddevice", specifier = ">=0.5" },
     { name = "soundfile", marker = "extra == 'ml'", specifier = ">=0.13" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.8", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.57,<5" },
     { name = "websockets", specifier = ">=15" },
 ]
 provides-extras = ["ml"]
@@ -319,6 +321,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/98/5411252e1c08bdd919c5d55774cebe9da0bebfb174c4e4ffa1a5821935ff/fastapi-0.163.0.tar.gz", hash = "sha256:ef55fa066d74b922aac7231af7869c4469b88ca00cac5d0421e42ceee213a902", size = 543109, upload-time = "2026-11-14T16:53:16.356Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/b0/2d68e967b2fc6012ef1e7e91253c8222a2a895a45dee3677562deb93987e/fastapi-0.163.0-py3-none-any.whl", hash = "sha256:7572550ab4935e3ff373dc0191aea410d6c48127cc5477bc290b992fe539e345", size = 154381, upload-time = "2026-11-14T16:53:14.67Z" },
+]
+
+[[package]]
+name = "faster-qwen3-tts"
+version = "0.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "qwen-tts" },
+    { name = "soundfile" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/27/ea/03a22ef4befde982111b509e89b371b2b3066b658f0e43eb5b6de553ea0d/faster_qwen3_tts-0.3.2.tar.gz", hash = "sha256:8fb853b2b896e14858f342245780814c522d3ae06babc717ac926399ad8c3e6f", size = 93311, upload-time = "2026-07-17T11:53:32.064Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/c7/49525c63af1644d6706d415c61558c8013c675fbd5ef50bc5e4b7c2641dc/faster_qwen3_tts-0.3.2-py3-none-any.whl", hash = "sha256:b17b2839d56cb178f5c382d85214ae62852b5728830bfeda066e6a15c832a364", size = 42924, upload-time = "2026-07-17T11:53:30.583Z" },
 ]
 
 [[package]]

@@ -44,12 +44,12 @@ def estimate_word_offsets(text: str, duration_ms: int) -> list[int]:
 
 
 class TTSEngine:
-    """Qwen3-TTS Base model cloning the reference voice picked during voice design."""
+    """Qwen3-TTS Base (via faster-qwen3-tts CUDA graphs) cloning the reference voice picked during voice design."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._model = None
-        self._prompt = None
+        self._ref_text = ""
 
     @property
     def is_loaded(self) -> bool:
@@ -58,29 +58,29 @@ class TTSEngine:
     def load(self) -> None:
         if self._model is not None:
             return
-        import torch
-        from qwen_tts import Qwen3TTSModel
+        from faster_qwen3_tts import FasterQwen3TTS
 
-        self._model = Qwen3TTSModel.from_pretrained(
-            self.settings.tts_model, device_map="cuda:0", dtype=torch.bfloat16)
-        ref_text = Path(self.settings.voice_ref_text).read_text(encoding="utf-8").strip()
-        self._prompt = self._model.create_voice_clone_prompt(
-            ref_audio=self.settings.voice_ref_wav, ref_text=ref_text)
+        self._ref_text = Path(self.settings.voice_ref_text).read_text(encoding="utf-8").strip()
+        self._model = FasterQwen3TTS.from_pretrained(self.settings.tts_model, local_files_only=True)
+        self.synth("Ready.")  # first call captures the CUDA graphs
 
     def unload(self) -> None:
         if self._model is None:
             return
+        import gc
+
         import torch
         self._model = None
-        self._prompt = None
+        gc.collect()
         torch.cuda.empty_cache()
 
     def synth(self, sentence: str) -> Utterance:
         if self._model is None:
             raise RuntimeError("TTSEngine.synth called before load()")
         wavs, sr = self._model.generate_voice_clone(
-            text=sentence, language="English", voice_clone_prompt=self._prompt)
-        pcm = np.asarray(wavs[0], dtype=np.float32)
+            text=sentence, language="English",
+            ref_audio=self.settings.voice_ref_wav, ref_text=self._ref_text)
+        pcm = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
         u = Utterance(pcm, int(sr), sentence)
         u.word_offsets_ms = estimate_word_offsets(sentence, u.duration_ms)
         return u

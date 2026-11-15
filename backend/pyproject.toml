@@ -18,7 +18,8 @@ dependencies = [
 [project.optional-dependencies]
 ml = [
     "torch>=2.8",
-    "qwen-tts",
+    "faster-qwen3-tts",
+    "transformers>=4.57,<5",
     "sherpa-onnx>=1.12",
     "openwakeword>=0.6",
     "soundfile>=0.13",

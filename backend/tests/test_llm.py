@@ -60,3 +60,10 @@ def test_reset_session_clears_history(fake_ollama):
 async def test_real_ollama_replies_with_mood_tag():
     out = "".join([c async for c in Brain("gemma4:12b").stream_reply("Hey. Say hi.")])
     assert re.match(r"\s*<mood:(neutral|amused|annoyed|smug|serious|disappointed)>", out)
+
+
+async def test_context_window_capped(fake_ollama):
+    b = Brain("gemma4:12b", client=fake_ollama)
+    await b.warm()
+    [c async for c in b.stream_reply("hey")]
+    assert all(c["options"]["num_ctx"] == 4096 for c in fake_ollama.calls)

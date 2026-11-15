@@ -18,3 +18,20 @@ Mic: OnePlus Nord Buds 4 Pro via MME (`mic_device = "Nord Buds MME"`). The Realt
 | **Nemotron streaming EN 0.6B int8, 160 ms** — **chosen** | 1.5 s | 192–203 ms | 0.24 | 4/5 ≥0.95 similarity; clip 1 clipped by late start; "Bonnington" → "Mornington" |
 
 Nemotron streams partials and is fast enough; Parakeet (offline, no partials) is not needed.
+
+## Voice (Qwen3-TTS 1.7B Base, cloning locked voice 06c)
+
+| Engine | First audio | Speed | Notes |
+|---|---|---|---|
+| qwen-tts 0.1.1 (official, SDPA) | ~1.8 s for a 2-word line | 0.7x real time (RTF 1.35–1.44) | Too slow: pauses before and between sentences |
+| **faster-qwen3-tts 0.5.4 (CUDA graphs)** — **chosen** | ~380 ms (streaming) | 1.8–2.1x real time | Same weights, same voice; needs transformers<5 |
+
+## VRAM, everything loaded together (desktop baseline ~1.1 GB)
+
+| Config | Bonnington's share | Total on card |
+|---|---|---|
+| STT (CPU) + TTS 1.7B + gemma4:12b, default context | 14.8 GB | 15.9 GB — over budget |
+| same, **Ollama num_ctx = 4096** — **chosen** | 13.5 GB | 14.6 GB |
+| after go_dormant() | 0.3 GB | — |
+
+Warm LLM first token with TTS resident: ~550 ms. TTS load incl. CUDA-graph capture: ~17 s; LLM load: ~3 s.
