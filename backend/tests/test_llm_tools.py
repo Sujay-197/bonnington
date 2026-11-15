@@ -96,8 +96,11 @@ async def test_claiming_to_save_without_a_tool_call_is_caught_and_redone(fake_ol
     out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "CN lab report three is due this Friday")
     assert out == "<mood:neutral>Filed. CN lab report three, Friday the 20th."
     assert tracker.vault.assignments()[0].title == "Lab report 3"
-    nudge = fake_ollama.calls[1]["messages"][-1]
-    assert nudge["role"] == "user" and "Nothing was saved" in nudge["content"]
+    redo = fake_ollama.calls[1]["messages"]
+    assert redo[-1]["role"] == "user" and redo[-1]["content"].startswith("CN lab report three is due this Friday")
+    assert "matching tool now" in redo[-1]["content"]
+    assert not any("I have recorded" in m["content"] for m in redo)        # the false claim is not fed back
+    assert fake_ollama.calls[1]["options"]["temperature"] == 0
 
 
 async def test_ordinary_replies_are_not_held_back_or_retried(fake_ollama, tracker):
@@ -111,19 +114,67 @@ async def test_claim_followed_by_a_real_tool_call_is_fine(fake_ollama, tracker):
     fake_ollama.turns = [["<mood:neutral>I have noted that. ", {"tool": "add_task", "args": {"title": "X"}}],
                          ["<mood:neutral>Task X, no date."]]
     out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add x")
-    assert out == "<mood:neutral>I have noted that. Task X, no date."
+    assert out == "<mood:neutral>Task X, no date."      # the premature claim is dropped; the real read-back stays
     assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
 
 
-async def test_only_one_retry_then_his_words_stand(fake_ollama, tracker):
+async def test_a_second_false_claim_is_replaced_by_an_honest_line(fake_ollama, tracker):
     fake_ollama.turns = [["<mood:neutral>I have marked it done."], ["<mood:neutral>I have marked it done, truly."],
                          ["never reached"]]
     out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "I renewed the passport")
-    assert out == "<mood:neutral>I have marked it done, truly."
+    assert out == "<mood:serious>I did not manage to save that. Tell me again, plainly."
     assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
+    assert fake_ollama.calls[-1]["options"]["temperature"] == 0
 
 
 async def test_claim_guard_is_off_without_a_tracker(fake_ollama):
     fake_ollama.script = ["<mood:neutral>I have noted your disdain."]
     await _say(Brain("m", client=fake_ollama), "hey")
     assert len([c for c in fake_ollama.calls if c.get("stream")]) == 1
+
+
+async def test_witty_opening_then_false_claim_keeps_the_wit_and_redoes_the_save(fake_ollama, tracker):
+    fake_ollama.turns = [
+        ["<mood:neutral>A bureaucratic necessity, I see. ", "I've noted your quest ", "to renew your passport."],
+        [{"tool": "add_task", "args": {"title": "Renew passport", "due": "1 December"}}],
+        ["<mood:neutral>Passport, due Tuesday the first of December."],
+    ]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add a task, renew my passport by first of December")
+    assert out == "<mood:neutral>A bureaucratic necessity, I see. Passport, due Tuesday the first of December."
+    assert tracker.vault.tasks()[0].title == "Renew passport"
+
+
+async def test_sentences_keep_their_spacing_when_released_one_by_one(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:amused>No ex", "ams. None at all!  ", "Enjoy", " it."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "what's left?")
+    assert out == "<mood:amused>No exams. None at all!  Enjoy it."
+
+
+@pytest.mark.parametrize("text,claim", [
+    ("I've noted your quest to renew your passport.", True),
+    ("I have marked your passport renewal as completed.", True),
+    ("Your passport renewal is noted for the first of December.", True),
+    ("I shall have it filed.", False),
+    ("I've wiped that score from the record.", True),
+    ("There are no exams scheduled for this week.", False),
+    ("You have removed all doubt about your work ethic.", False),
+    ("Medrag has not been updated in five days.", False),
+    ("You scored 38 out of 50, noted failure that you are.", False),
+])
+def test_claim_detection(text, claim):
+    from bonnington.brain.llm import _claims_a_save
+    assert _claims_a_save(text) is claim
+
+
+async def test_stray_closing_tag_after_a_tool_call_is_not_spoken(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "X"}}], ["</", "<mood:smug>Filed."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add x")
+    assert "</" not in out and out.endswith("Filed.")
+
+
+async def test_history_keeps_the_users_own_words_after_a_redo(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>I have recorded it."],
+                         [{"tool": "add_task", "args": {"title": "X"}}], ["<mood:neutral>Task X."]]
+    b = Brain("m", client=fake_ollama, tracker=tracker)
+    await _say(b, "add x")
+    assert b.history[0] == {"role": "user", "content": "add x"}
