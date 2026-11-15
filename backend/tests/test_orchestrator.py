@@ -161,3 +161,8 @@ async def test_noise_turn_keeps_listening_for_real_speech(rig):
     rig.stt_final("how are you doing")
     await rig.run_until_idle()
     assert rig.brain_calls == 1 and rig.brain_inputs[0].endswith("how are you doing")
+
+
+async def test_load_buffer_is_capped_to_two_seconds(rig):
+    from bonnington.orchestrator import MAX_BUFFER_FRAMES
+    assert MAX_BUFFER_FRAMES == 25

@@ -44,3 +44,22 @@ async def test_close_marks_closed(stalling_factory):
 def test_settings_mic_device_default_none(tmp_path):
     from bonnington.config import load_settings
     assert load_settings(tmp_path / "s.json").mic_device is None
+
+
+async def test_busy_event_loop_is_not_mistaken_for_a_stall(stalling_factory):
+    import asyncio
+    import time
+    fac = stalling_factory(stall_after=None)
+    src = MicSource(stream_factory=fac, stall_seconds=0.1, retry_seconds=0.01)
+    await src.open()
+
+    async def hog():          # another task blocks the loop (e.g. speech recognition catching up)
+        for _ in range(4):
+            await asyncio.sleep(0.02)
+            time.sleep(0.3)
+
+    task = asyncio.create_task(hog())
+    async for _ in src.frames():
+        if task.done():
+            break
+    assert fac.opens == 1

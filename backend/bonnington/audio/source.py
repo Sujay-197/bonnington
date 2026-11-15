@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Protocol
 
@@ -13,6 +14,7 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 FRAME = 1280  # 80 ms
+STALL_REOPEN_S = 0.3
 
 
 class AudioSource(Protocol):
@@ -42,6 +44,7 @@ class MicSource:
         self._want_open = asyncio.Event()
         self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._last_audio = 0.0  # monotonic time the driver last delivered audio
         self.is_open = False
 
     async def open(self) -> None:
@@ -66,8 +69,13 @@ class MicSource:
         while not self._queue.empty():
             self._queue.get_nowait()
 
+    async def _wait_for_audio(self) -> None:
+        while self._queue.empty():
+            await asyncio.sleep(0.01)
+
     def _on_audio(self, indata, frames, time_info, status) -> None:  # PortAudio thread
         block = np.array(indata, dtype=np.int16).reshape(-1)
+        self._last_audio = time.monotonic()
         if self._loop is not None:
             try:
                 self._loop.call_soon_threadsafe(self._queue.put_nowait, block)
@@ -89,12 +97,27 @@ class MicSource:
                 if self._stream is None:
                     pending = np.zeros(0, np.int16)
                     self._stream = await asyncio.to_thread(self._make_stream)
-                block = await asyncio.wait_for(self._queue.get(), self.stall_seconds)
+                    self._last_audio = time.monotonic()
+                if self._queue.empty():
+                    try:
+                        await asyncio.wait_for(self._wait_for_audio(), self.stall_seconds)
+                    except asyncio.TimeoutError:
+                        # Judge a stall by when the driver last delivered audio, not by how busy
+                        # this program was: a blocked event loop must not look like a dead mic.
+                        if time.monotonic() - self._last_audio < self.stall_seconds:
+                            continue
+                        if self._want_open.is_set():
+                            log.warning("microphone stalled (no audio for %.1fs); reopening", self.stall_seconds)
+                            await self._drop_stream()
+                            await asyncio.sleep(STALL_REOPEN_S)
+                        continue
+                    if self._queue.empty():
+                        continue
+                block = self._queue.get_nowait()
             except Exception as e:
                 if not self._want_open.is_set():
                     continue
-                reason = "no audio arriving" if isinstance(e, asyncio.TimeoutError) else repr(e)
-                log.warning("microphone failed (%s); reopening in %.1fs", reason, self.retry_seconds)
+                log.warning("microphone failed (%r); retrying in %.1fs", e, self.retry_seconds)
                 await self._drop_stream()
                 await asyncio.sleep(self.retry_seconds)
                 continue

@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 State = Literal["idle", "listening", "thinking", "speaking", "followup"]
 OFFLINE_TEXT = "My brain is offline. Start Ollama."
 HM_AFTER_S = 3.0
-MAX_BUFFER_FRAMES = 125  # 10 s of audio kept while models load
+MAX_BUFFER_FRAMES = 25  # last 2 s of audio kept while models load (replay blocks the loop ~0.5 s)
 
 
 @dataclass

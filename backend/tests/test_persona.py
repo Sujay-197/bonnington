@@ -27,3 +27,7 @@ def test_summons_note_hotkey_and_hours():
     ctx = SummonsContext("hotkey", 3, 7200.0, 1, datetime(2026, 11, 15, 9, 5))
     n = build_summons_note(ctx)
     assert "hotkey" in n and "2 h" in n
+
+
+def test_prompt_limits_name_grudge_to_britney_summons():
+    assert "Only complain about the name when the note says" in build_system_prompt()
