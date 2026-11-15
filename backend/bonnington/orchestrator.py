@@ -163,7 +163,11 @@ class Orchestrator:
     def _finish_turn(self) -> None:
         text = self.d.stt.finish().strip()
         if not text:
-            self._end_session()
+            # Noise or a breath, not words: keep listening until the window runs out.
+            log.info("heard nothing (noise); still listening")
+            self._heard_speech = False
+            self.d.turn.reset()
+            self.d.stt.start_turn()
             return
         self.d.bridge.broadcast(UserFinalEvent(text))
         log.info("heard: %s", text)

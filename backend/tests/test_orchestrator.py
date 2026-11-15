@@ -110,6 +110,7 @@ async def test_fast_cold_start_plays_no_hm(rig):
 async def test_empty_transcript_skips_brain(rig):
     rig.wake_on_frame(0, "britney")
     rig.speech(frames=range(2, 6))
+    rig.turn.turns.append((500, 4))   # nothing else is said
     rig.stt_final("  ")
     await rig.run_until_idle()
     assert rig.brain_calls == 0 and rig.orch.state == "idle"
@@ -151,3 +152,12 @@ async def test_logs_states_and_transcript(rig, caplog):
     await rig.run_until_idle()
     text = caplog.text
     assert "state -> listening" in text and "heard: what's left" in text
+
+
+async def test_noise_turn_keeps_listening_for_real_speech(rig):
+    rig.wake_on_frame(0, "britney")
+    rig.turn.turns.extend([(0, 3), (5, 4)])     # a noise blip, then you actually speak
+    rig.stt_final("")
+    rig.stt_final("how are you doing")
+    await rig.run_until_idle()
+    assert rig.brain_calls == 1 and rig.brain_inputs[0].endswith("how are you doing")
