@@ -25,6 +25,7 @@ class BrainUnavailable(Exception):
 
 
 MAX_TOOL_ROUNDS = 4
+MAX_REPLY_TOKENS = 400
 
 
 def _field(obj: Any, key: str, default: Any = None) -> Any:
@@ -46,7 +47,14 @@ class Brain:
 
     def _append(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})
-        self.history = self.history[-MAX_HISTORY:]
+        self._trim()
+
+    def _trim(self) -> None:
+        """Keep the last MAX_HISTORY messages, never starting mid-exchange (a tool result without its call)."""
+        h = self.history[-MAX_HISTORY:]
+        while h and h[0]["role"] != "user" and len(h) < len(self.history):
+            h = h[1:]
+        self.history = h
 
     def _system(self) -> dict[str, str]:
         text = build_system_prompt(tracker=self.tracker is not None)
@@ -59,7 +67,7 @@ class Brain:
 
     async def _call(self, **kw: Any) -> Any:
         try:
-            options = {"num_ctx": NUM_CTX, **kw.pop("options", {})}
+            options = {"num_ctx": NUM_CTX, "num_predict": MAX_REPLY_TOKENS, **kw.pop("options", {})}
             return await self.client.chat(model=self.model, options=options, **kw)
         except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError) as e:
             raise BrainUnavailable(f"Ollama is not reachable: {e}") from e
@@ -86,8 +94,6 @@ class Brain:
                                           think=False, keep_alive=KEEP_ALIVE)
                 if self.tracker is not None and round_no < MAX_TOOL_ROUNDS:
                     kw["tools"] = self.tracker.tool_specs()
-                if retried:
-                    kw["options"] = {"temperature": 0}     # the redo should be literal, not creative
                 stream = await self._call(**kw)
                 # After he has already spoken this turn, a new round's leading mood tag must not be read aloud.
                 strip = MoodParser("neutral") if said else None
@@ -110,6 +116,7 @@ class Brain:
                         continue
                     round_text.append(text)
                     out = strip.feed(text) if strip else text
+                    out = re.sub(r"</\s*$", "", out)
                     if out and tools_ran and not round_started:
                         out = re.sub(r"^\s*</\s*", "", out)
                     if not out:
@@ -134,7 +141,8 @@ class Brain:
                     else:
                         said.append(tail)
                         yield tail
-                if held and not calls:
+                silent_redo = retried and not tools_ran and not calls and not round_started
+                if (held or silent_redo) and not calls:
                     log.warning("claimed a save without a tool call: %s", "".join(held)[:120])
                     if retried:            # still no tool call: say so, never let the claim stand
                         line = _FAILED if said else "<mood:serious>" + _FAILED
@@ -158,8 +166,12 @@ class Brain:
         except (httpx.HTTPError, ConnectionError) as e:
             raise BrainUnavailable(f"Ollama stream failed: {e}") from e
         finally:
+            # Tool calls and results stay in his memory: otherwise past turns look as if things
+            # were saved just by saying so, and he imitates that.
+            self.history.extend(extra)
             if said:
                 self._append("assistant", "".join(said))
+            self._trim()
 
 
 _FAILED = "I did not manage to save that. Tell me again, plainly."
@@ -176,10 +188,16 @@ def _complete_sentences(text: str) -> tuple[list[str], str]:
     return out, text[pos:]
 
 
-_VERBS = r"(noted|recorded|saved|filed|logged|added|marked|undone|removed|deleted|placed|put|updated|ticked|crossed|wiped)"
+_DONE = (r"(noted|recorded|saved|filed|logged|added|marked|undone|removed|deleted|placed|put|updated|ticked|"
+         r"crossed|wiped|etched|scrubbed|shelved|struck|jotted|pencill?ed|registered|entered|tucked|scheduled)")
+_DO = (r"(note|record|save|file|log|add|mark|undo|remove|delete|place|put|update|tick|cross|wipe|shelve|"
+       r"strike|jot|pencil|register|enter|schedule)")
 _CLAIM = re.compile(
-    r"\bI(?:'ve| have| just|'ll| will| shall)?\s+(?:\w+\s+){0,2}" + _VERBS + r"\b"
-    r"|\b(?:is|are|has been|have been|been)\s+(?:now\s+|duly\s+)?" + _VERBS + r"\b", re.IGNORECASE)
+    r"\bI(?:'ve| have| just)?\s+(?:\w+\s+){0,2}" + _DONE + r"\b"                       # I've noted / I have duly filed
+    r"|\bI(?:'ll| will| shall)\s+(?:\w+\s+){0,2}(?:" + _DO + r"|have\s+\w+\s+" + _DONE + r")\b"  # I'll mark / I shall have it filed
+    r"|\b(?:is|are)\s+(?:now\s+|duly\s+|firmly\s+|officially\s+){0,2}" + _DONE + r"\b"   # is now noted
+    r"|(?<!not )\b(?:has|have) been\s+(?:\w+ly\s+)?" + _DONE + r"\b",                   # has been recorded
+    re.IGNORECASE)
 _FORCE = ("\n[Record or change this with the matching tool now. "
           "Do not answer in words until the tool has run.]")
 

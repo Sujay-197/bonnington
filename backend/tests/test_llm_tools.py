@@ -43,12 +43,14 @@ async def test_tool_call_is_executed_and_result_fed_back(fake_ollama, tracker):
     assert "Tuesday 24 November" in fake_ollama.calls[-1]["messages"][0]["content"]   # snapshot refreshed
 
 
-async def test_history_keeps_only_what_was_said(fake_ollama, tracker):
+async def test_history_keeps_the_tool_call_and_its_result(fake_ollama, tracker):
     fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "Call the bank"}}], ["<mood:neutral>Done."]]
     b = Brain("m", client=fake_ollama, tracker=tracker)
     await _say(b, "remind me to call the bank")
-    assert b.history == [{"role": "user", "content": "remind me to call the bank"},
-                         {"role": "assistant", "content": "<mood:neutral>Done."}]
+    assert [m["role"] for m in b.history] == ["user", "assistant", "tool", "assistant"]
+    assert b.history[1]["tool_calls"][0]["function"]["name"] == "add_task"
+    assert b.history[2]["content"].startswith("Saved task: Call the bank")
+    assert b.history[3] == {"role": "assistant", "content": "<mood:neutral>Done."}
 
 
 async def test_tool_errors_go_back_to_the_model_not_the_user(fake_ollama, tracker):
@@ -100,7 +102,7 @@ async def test_claiming_to_save_without_a_tool_call_is_caught_and_redone(fake_ol
     assert redo[-1]["role"] == "user" and redo[-1]["content"].startswith("CN lab report three is due this Friday")
     assert "matching tool now" in redo[-1]["content"]
     assert not any("I have recorded" in m["content"] for m in redo)        # the false claim is not fed back
-    assert fake_ollama.calls[1]["options"]["temperature"] == 0
+    assert fake_ollama.calls[1]["options"]["num_predict"] == 400
 
 
 async def test_ordinary_replies_are_not_held_back_or_retried(fake_ollama, tracker):
@@ -124,7 +126,6 @@ async def test_a_second_false_claim_is_replaced_by_an_honest_line(fake_ollama, t
     out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "I renewed the passport")
     assert out == "<mood:serious>I did not manage to save that. Tell me again, plainly."
     assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
-    assert fake_ollama.calls[-1]["options"]["temperature"] == 0
 
 
 async def test_claim_guard_is_off_without_a_tracker(fake_ollama):
@@ -154,7 +155,14 @@ async def test_sentences_keep_their_spacing_when_released_one_by_one(fake_ollama
     ("I've noted your quest to renew your passport.", True),
     ("I have marked your passport renewal as completed.", True),
     ("Your passport renewal is noted for the first of December.", True),
-    ("I shall have it filed.", False),
+    ("I shall have it filed.", True),
+    ("I shall mark that task as finished.", True),
+    ("I'll note that down.", True),
+    ("I've etched that into the record.", True),
+    ("I've officially shelved campusai.", True),
+    ("The exam has been recorded.", True),
+    ("I shall be watching.", False),
+    ("I will say this once.", False),
     ("I've wiped that score from the record.", True),
     ("There are no exams scheduled for this week.", False),
     ("You have removed all doubt about your work ethic.", False),
@@ -178,3 +186,26 @@ async def test_history_keeps_the_users_own_words_after_a_redo(fake_ollama, track
     b = Brain("m", client=fake_ollama, tracker=tracker)
     await _say(b, "add x")
     assert b.history[0] == {"role": "user", "content": "add x"}
+
+
+async def test_a_redo_that_says_nothing_gets_the_honest_line(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>I have recorded it."], [], ["never reached"]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "CN lab due friday")
+    assert out == "<mood:serious>I did not manage to save that. Tell me again, plainly."
+
+
+async def test_trailing_stray_tag_is_not_spoken(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:smug>You managed it. ", "Remarkable.", "</"]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "hello")
+    assert out == "<mood:smug>You managed it. Remarkable."
+
+
+def test_history_trim_never_starts_mid_exchange(fake_ollama, tracker):
+    b = Brain("m", client=fake_ollama, tracker=tracker)
+    for i in range(9):
+        b.history += [{"role": "user", "content": f"u{i}"},
+                      {"role": "assistant", "content": "", "tool_calls": []},
+                      {"role": "tool", "content": "ok"},
+                      {"role": "assistant", "content": f"a{i}"}]
+    b._trim()
+    assert len(b.history) <= 20 and b.history[0]["role"] == "user" and b.history[-1]["content"] == "a8"

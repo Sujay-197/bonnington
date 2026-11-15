@@ -66,4 +66,4 @@ async def test_context_window_capped(fake_ollama):
     b = Brain("gemma4:12b", client=fake_ollama)
     await b.warm()
     [c async for c in b.stream_reply("hey")]
-    assert all(c["options"]["num_ctx"] == 4096 for c in fake_ollama.calls)
+    assert all(c["options"]["num_ctx"] == 4096 and c["options"]["num_predict"] == 400 for c in fake_ollama.calls)
