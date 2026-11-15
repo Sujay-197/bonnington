@@ -37,6 +37,7 @@ async def _amain(state: dict) -> None:
     from .tts import TTSEngine, Utterance
     from .ui_process import UIProcess
     from .vad import TurnDetector
+    from .vault.tools import build_tracker
     from .wake import SttWake
 
     settings = load_settings(ROOT / "data" / "settings.json")
@@ -66,7 +67,7 @@ async def _amain(state: dict) -> None:
     else:
         mic = MicSource(device=settings.mic_device)
     deps = Deps(source=mic, wake=SttWake(settings.wake_phrases, settings, min_similarity=settings.wake_similarity),
-                turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model),
+                turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model, tracker=build_tracker(settings, ROOT.parent)),
                 tts=TTSEngine(settings), player=player, bridge=bridge,
                 store=GrudgeStore(ROOT / "data" / "bonnington.db"), settings=settings,
                 play_file=play_file)

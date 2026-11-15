@@ -1,0 +1,129 @@
+from datetime import date, datetime
+
+import pytest
+
+from bonnington.brain.llm import Brain
+from bonnington.brain.persona import build_system_prompt
+from bonnington.vault.store import Vault
+from bonnington.vault.tools import Tracker
+
+NOW = datetime(2026, 11, 15, 23, 40)
+
+
+@pytest.fixture
+def tracker(tmp_path):
+    return Tracker(Vault(tmp_path / "vault"), projects=lambda: [], now=lambda: NOW)
+
+
+async def _say(brain, text):
+    return "".join([c async for c in brain.stream_reply(text)])
+
+
+async def test_snapshot_and_tools_are_sent_to_the_model(fake_ollama, tracker):
+    tracker.call("add_task", {"title": "Call the bank"})
+    fake_ollama.turns = [["<mood:neutral>Noted."]]
+    await _say(Brain("m", client=fake_ollama, tracker=tracker), "what's left?")
+    call = fake_ollama.calls[-1]
+    system = call["messages"][0]["content"]
+    assert "TRACKER DATA" in system and "Call the bank" in system and "Today is Sunday 15 November 2026" in system
+    assert [t["function"]["name"] for t in call["tools"]][:2] == ["add_exam", "add_assignment"]
+
+
+async def test_tool_call_is_executed_and_result_fed_back(fake_ollama, tracker):
+    fake_ollama.turns = [
+        [{"tool": "add_exam", "args": {"subject": "DBMS", "date": "the 24th", "time": "9am"}}],
+        ["<mood:smug>Filed. ", "DBMS, Tuesday the 24th, nine a.m."],
+    ]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "I have a DBMS exam on the 24th at nine")
+    assert out == "<mood:smug>Filed. DBMS, Tuesday the 24th, nine a.m."
+    assert tracker.vault.exams()[0].on == date(2026, 11, 24)
+    second = fake_ollama.calls[-1]["messages"]
+    assert second[-2]["role"] == "assistant" and second[-2]["tool_calls"][0]["function"]["name"] == "add_exam"
+    assert second[-1]["role"] == "tool" and second[-1]["content"].startswith("Saved exam: DBMS Exam on Tuesday 24 November")
+    assert "Tuesday 24 November" in fake_ollama.calls[-1]["messages"][0]["content"]   # snapshot refreshed
+
+
+async def test_history_keeps_only_what_was_said(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "Call the bank"}}], ["<mood:neutral>Done."]]
+    b = Brain("m", client=fake_ollama, tracker=tracker)
+    await _say(b, "remind me to call the bank")
+    assert b.history == [{"role": "user", "content": "remind me to call the bank"},
+                         {"role": "assistant", "content": "<mood:neutral>Done."}]
+
+
+async def test_tool_errors_go_back_to_the_model_not_the_user(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_exam", "args": {"subject": "DBMS", "date": "soonish"}}],
+                         ["<mood:annoyed>Soonish is not a date. When?"]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "exam soonish")
+    assert "ERROR" not in out
+    assert fake_ollama.calls[-1]["messages"][-1]["content"].startswith("ERROR:")
+
+
+async def test_second_mood_tag_after_spoken_text_is_dropped(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>One moment. ", {"tool": "add_task", "args": {"title": "X"}}],
+                         ["<mood:smug>", "Filed."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add x")
+    assert out == "<mood:neutral>One moment. Filed."
+
+
+async def test_runaway_tool_loop_is_stopped(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "undo_last"}] for _ in range(10)] + [["never reached"]]
+    await _say(Brain("m", client=fake_ollama, tracker=tracker), "loop")
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 5
+    assert "tools" not in fake_ollama.calls[-1]            # last round: must answer in words
+
+
+async def test_without_tracker_no_tools_are_sent(fake_ollama):
+    fake_ollama.script = ["<mood:neutral>Hm."]
+    await _say(Brain("m", client=fake_ollama), "hey")
+    assert "tools" not in fake_ollama.calls[-1] and "TRACKER DATA" not in fake_ollama.calls[-1]["messages"][0]["content"]
+
+
+def test_persona_with_tracker_is_a_tracker_not_a_tutor():
+    p = build_system_prompt(tracker=True)
+    for must in ["TRACKER DATA", "not a study companion", "read back", "undo_last", "Never invent"]:
+        assert must in p
+    assert "no access to their calendar" not in p
+    assert "no access to their calendar" in build_system_prompt()
+
+
+async def test_claiming_to_save_without_a_tool_call_is_caught_and_redone(fake_ollama, tracker):
+    fake_ollama.turns = [
+        ["<mood:neutral>I have recorded ", "your CN lab report as due Friday."],          # a lie: no tool call
+        [{"tool": "add_assignment", "args": {"subject": "CN", "title": "Lab report 3", "due": "friday"}}],
+        ["<mood:neutral>Filed. CN lab report three, Friday the 20th."],
+    ]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "CN lab report three is due this Friday")
+    assert out == "<mood:neutral>Filed. CN lab report three, Friday the 20th."
+    assert tracker.vault.assignments()[0].title == "Lab report 3"
+    nudge = fake_ollama.calls[1]["messages"][-1]
+    assert nudge["role"] == "user" and "Nothing was saved" in nudge["content"]
+
+
+async def test_ordinary_replies_are_not_held_back_or_retried(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:amused>You have no exams this week. ", "Enjoy it while it lasts."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "what's left?")
+    assert out == "<mood:amused>You have no exams this week. Enjoy it while it lasts."
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 1
+
+
+async def test_claim_followed_by_a_real_tool_call_is_fine(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>I have noted that. ", {"tool": "add_task", "args": {"title": "X"}}],
+                         ["<mood:neutral>Task X, no date."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add x")
+    assert out == "<mood:neutral>I have noted that. Task X, no date."
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
+
+
+async def test_only_one_retry_then_his_words_stand(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>I have marked it done."], ["<mood:neutral>I have marked it done, truly."],
+                         ["never reached"]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "I renewed the passport")
+    assert out == "<mood:neutral>I have marked it done, truly."
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
+
+
+async def test_claim_guard_is_off_without_a_tracker(fake_ollama):
+    fake_ollama.script = ["<mood:neutral>I have noted your disdain."]
+    await _say(Brain("m", client=fake_ollama), "hey")
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 1

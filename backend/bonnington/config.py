@@ -33,6 +33,10 @@ class Settings:
     followup_seconds: float = 8.0
     idle_unload_seconds: float = 600.0
     ws_port: int = 8765
+    vault_dir: str = "data/vault"       # his notes on your exams, tasks, scores and projects
+    claude_projects_dir: str = ""       # "" = ~/.claude/projects
+    projects_root: str = ""             # "" = the folder that contains this project
+    academic_folders: list[str] = field(default_factory=lambda: ["clg"])
 
 
 def save_settings(s: Settings, path: Path) -> None:

@@ -15,19 +15,26 @@ class FakeOllama:
 
     def __init__(self):
         self.script: list[str] = []
+        self.turns: list[list] = []     # one list per model call; items are text or {"tool": name, "args": {...}}
         self.calls: list[dict] = []
         self.raise_on_chat: Exception | None = None
 
     async def chat(self, **kw):
-        self.calls.append(kw)
+        import copy
+        self.calls.append(copy.deepcopy(kw))
         if self.raise_on_chat is not None:
             raise self.raise_on_chat
         if not kw.get("stream"):
             return {"message": {"content": ""}}
+        items = self.turns.pop(0) if self.turns else self.script
 
         async def gen():
-            for s in self.script:
-                yield {"message": {"content": s}}
+            for s in items:
+                if isinstance(s, dict):
+                    yield {"message": {"content": "", "tool_calls": [
+                        {"function": {"name": s["tool"], "arguments": s.get("args", {})}}]}}
+                else:
+                    yield {"message": {"content": s}}
         return gen()
 
 
