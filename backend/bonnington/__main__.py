@@ -48,7 +48,7 @@ async def _amain(state: dict) -> None:
         data, sr = sf.read(path, dtype="float32", always_2d=False)
         await player.play(Utterance(data, sr, ""))
 
-    mic = MicSource()
+    mic = MicSource(device=settings.mic_device)
     deps = Deps(source=mic, wake=WakeDetector(settings.wake_models, settings.wake_threshold),
                 turn=TurnDetector(), stt=SherpaSTT(settings), brain=Brain(settings.llm_model),
                 tts=TTSEngine(settings), player=player, bridge=bridge,

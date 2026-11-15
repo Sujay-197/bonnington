@@ -18,3 +18,29 @@ async def test_close_marks_closed(flaky_stream_factory):
     assert src.is_open
     await src.close()
     assert not src.is_open
+
+
+async def test_device_name_passed_to_stream():
+    seen = {}
+
+    class S:
+        def start(self): pass
+        def read(self, n):
+            import numpy as np
+            return np.zeros((n, 1), np.int16), False
+        def stop(self): pass
+        def close(self): pass
+
+    def factory(**kw):
+        seen.update(kw)
+        return S()
+    src = MicSource(device="Nord Buds", stream_factory=factory)
+    await src.open()
+    async for _ in src.frames():
+        break
+    assert seen["device"] == "Nord Buds"
+
+
+def test_settings_mic_device_default_none(tmp_path):
+    from bonnington.config import load_settings
+    assert load_settings(tmp_path / "s.json").mic_device is None

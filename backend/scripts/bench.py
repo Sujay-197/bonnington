@@ -15,7 +15,7 @@ from bonnington.tts import TTSEngine
 
 ROOT = Path(__file__).resolve().parents[2]
 BENCH = ROOT / "data" / "bench"
-STT_DIRS = sorted((ROOT / "data" / "models" / "stt").glob("sherpa-onnx-*"))
+STT_DIRS = sorted(p for p in (ROOT / "data" / "models" / "stt").glob("sherpa-onnx-*") if p.is_dir())
 
 
 def vram_mb() -> int:

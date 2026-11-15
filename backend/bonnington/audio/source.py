@@ -31,7 +31,7 @@ def _default_stream_factory(**kw):
 class MicSource:
     """Blocking reads in a worker thread. Survives device loss by reopening the current default device."""
 
-    def __init__(self, device: int | None = None, retry_seconds: float = 5.0, stream_factory=None) -> None:
+    def __init__(self, device: int | str | None = None, retry_seconds: float = 5.0, stream_factory=None) -> None:
         self.device = device
         self.retry_seconds = retry_seconds
         self.stream_factory = stream_factory or _default_stream_factory

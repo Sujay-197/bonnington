@@ -17,6 +17,7 @@ def _default_wake_models() -> dict[str, str]:
 @dataclass
 class Settings:
     hotkey: str = "<ctrl>+<alt>+b"
+    mic_device: str | None = None  # substring of the input device name; None = Windows default
     headphones_mode: bool = False
     llm_model: str = "gemma4:12b"
     stt_model_dir: str = "data/models/stt/sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
