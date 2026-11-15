@@ -1,0 +1,22 @@
+from bonnington.config import load_settings, save_settings
+
+
+def test_load_settings_creates_defaults(tmp_path):
+    s = load_settings(tmp_path / "settings.json")
+    assert s.followup_seconds == 8.0 and s.idle_unload_seconds == 600.0
+    assert s.llm_model == "gemma4:12b" and s.headphones_mode is False
+    assert (tmp_path / "settings.json").exists()
+
+
+def test_load_settings_ignores_unknown_keys(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text('{"ws_port": 9000, "bogus": 1}')
+    assert load_settings(p).ws_port == 9000
+
+
+def test_save_then_load_roundtrips(tmp_path):
+    p = tmp_path / "s.json"
+    s = load_settings(p)
+    s.headphones_mode = True
+    save_settings(s, p)
+    assert load_settings(p).headphones_mode is True
