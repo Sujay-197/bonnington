@@ -1,6 +1,6 @@
 // Pure reducer: backend events -> UI state. `now` is passed in so it stays testable.
 const MOODS = ["neutral", "amused", "annoyed", "smug", "serious", "disappointed"];
-export const CARDS = ["week", "counts", "scores", "next", "projects", "focus"];
+export const CARDS = ["week", "tasks", "counts", "scores", "next", "projects", "focus", "month"];
 const PHASES = ["idle", "listening", "thinking", "speaking", "waking"];
 
 export function initialState() {

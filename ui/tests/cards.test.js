@@ -50,7 +50,8 @@ describe("cards", () => {
     const h = scoresHtml(D);
     expect(h).toContain("73%");
     expect(h).toContain("DBMS");
-    expect(h).toContain("CN 64%");
+    expect(h).toContain("CN");
+    expect(h).toContain("64%");
     expect(scoresHtml({ ...D, scores: [] })).toContain("No scores yet");
   });
   test("next up", () => {

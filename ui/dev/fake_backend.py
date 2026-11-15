@@ -45,7 +45,8 @@ async def main() -> None:
 
     bridge = UIBridge(8770)
     await bridge.start()
-    p = Presenter(tracker, bridge, britney_count=lambda: 214, mic="phone", models_loaded=lambda: True)
+    p = Presenter(tracker, bridge, britney_count=lambda: 214, mic="PHONE · NOT CONNECTED", models_loaded=lambda: True,
+                  mic_hint=lambda: {"url": "https://192.168.1.3:8766", "code": "274852"})
     tracker.on_change, tracker.on_tool = p.changed, p.tool_ran
     p.refresh()
     print("fake backend on ws://127.0.0.1:8770", flush=True)

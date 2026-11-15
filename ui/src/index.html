@@ -52,6 +52,30 @@
   .stat div.ok { border-color: var(--green); } .stat div.bad { border-color: var(--red); }
   .stat b { display: block; font-family: "Segoe UI", system-ui, sans-serif; font-size: 1.8rem; font-weight: 500; color: #fff; line-height: 1.1; }
   .stat span { font-size: 0.85rem; color: var(--mu); letter-spacing: .06em; }
+
+  .card[hidden] { display: none; }
+  .card.warn { border-color: var(--amber-d); }
+  .card.warn .lab span:first-child { color: var(--amber); }
+  .card.warn .row span { user-select: text; }
+  .card.on { animation: lit 1.1s ease-out 1; }                 /* one brief pulse when a card lights up */
+  @keyframes lit { 0% { background: #2a1d05; } 100% { background: #0d0a04; } }
+
+  .score { display: grid; grid-template-columns: minmax(3.5rem, 30%) 1fr 3.2rem; align-items: center; gap: 0.7rem; padding: 0.3rem 0; border-top: 1px solid #1c1c1a; }
+  .score span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score b { font-weight: 400; text-align: right; color: #fff; }
+  .score b.soon { color: var(--amber); } .score b.late { color: var(--red); }
+  .track { height: 3px; background: #1c1c1a; }
+  .track i { display: block; height: 3px; background: #d3d1c7; }
+  .w1 { width: 10%; } .w2 { width: 20%; } .w3 { width: 30%; } .w4 { width: 40%; } .w5 { width: 50%; }
+  .w6 { width: 60%; } .w7 { width: 70%; } .w8 { width: 80%; } .w9 { width: 90%; } .w10 { width: 100%; }
+
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.35rem 0; justify-items: center; align-items: center; }
+  .cal .wd { color: var(--dim); font-size: 0.8rem; }
+  .cal .day { width: 1.3rem; height: 1.3rem; display: flex; align-items: center; justify-content: center; }
+  .cal .day i { width: 3px; height: 3px; border-radius: 50%; background: #5f5e5a; display: block; }
+  .cal .day.today i { background: #fff; box-shadow: 0 0 0 3px #000, 0 0 0 4px #fff; }
+  .cal .day.due i { width: 0.6rem; height: 0.6rem; background: var(--amber); }
+  .cal .day.exam i { width: 0.8rem; height: 0.8rem; background: var(--red); }
   .bars { display: flex; align-items: flex-end; gap: 0.8rem; height: 3.4rem; margin: 1.4rem 0 0.6rem; }
   .bars div { flex: 1; max-width: 4.5rem; position: relative; min-height: 2px; background: #444441; }
   .bars .h1 { height: 10%; } .bars .h2 { height: 20%; } .bars .h3 { height: 30%; } .bars .h4 { height: 40%; } .bars .h5 { height: 50%; }
@@ -84,6 +108,9 @@
     .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "g"; grid-template-rows: 1fr; overflow: hidden; }
     .l, .r, .bot, #card-next { display: none; }
   }
+  @media (max-height: 760px) and (min-width: 901px) {
+    #card-counts { display: none; }            /* short wide windows: drop the least useful card first */
+  }
 </style>
 </head>
 <body>
@@ -102,8 +129,9 @@
   <div class="grid">
     <div class="col l">
       <div class="card" id="card-week"><div class="lab"><span>THIS WEEK</span><span>A</span></div><div class="body"></div></div>
-      <div class="card" id="card-counts"><div class="lab"><span>COUNTS</span><span>B</span></div><div class="body"></div></div>
-      <div class="card" id="card-scores"><div class="lab"><span>SCORES</span><span>C</span></div><div class="body"></div></div>
+      <div class="card" id="card-tasks"><div class="lab"><span>TASKS</span><span>B</span></div><div class="body"></div></div>
+      <div class="card" id="card-counts"><div class="lab"><span>COUNTS</span><span>C</span></div><div class="body"></div></div>
+      <div class="card" id="card-scores"><div class="lab"><span>SCORES</span><span>D</span></div><div class="body"></div></div>
     </div>
     <div class="g gl">
       <canvas id="globe"></canvas>
@@ -112,8 +140,10 @@
       <div class="card" id="card-next"><div class="lab"><span>NEXT UP</span><span></span></div><div class="body"></div></div>
     </div>
     <div class="col r">
-      <div class="card" id="card-projects"><div class="lab"><span>PROJECTS</span><span>D</span></div><div class="body"></div></div>
-      <div class="card" id="card-focus"><div class="lab"><span>IN FOCUS</span><span>E</span></div><div class="body"></div></div>
+      <div class="card warn" id="card-mic" hidden><div class="lab"><span>PHONE MIC NOT CONNECTED</span><span></span></div><div class="body"></div></div>
+      <div class="card" id="card-projects"><div class="lab"><span>PROJECTS</span><span>E</span></div><div class="body"></div></div>
+      <div class="card" id="card-focus"><div class="lab"><span>IN FOCUS</span><span>F</span></div><div class="body"></div></div>
+      <div class="card" id="card-month"><div class="lab"><span>MONTH</span><span>G</span></div><div class="body"></div></div>
     </div>
   </div>
   <div class="bot"><span id="b-left"></span><span id="b-right"></span></div>

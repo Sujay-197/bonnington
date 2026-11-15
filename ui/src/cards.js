@@ -24,11 +24,44 @@ export function countsHtml(d) {
     `<div class="${c.late ? "bad" : ""}"><b>${c.late}</b><span>LATE</span></div></div>`;
 }
 
+// One row per subject: name, a bar for the average, the number. Widths are classes (w1..w10):
+// the app window blocks inline styles.
 export function scoresHtml(d) {
   const s = d.scores || [];
   if (!s.length) return `<div class="empty">No scores yet.</div>`;
-  const rest = s.slice(1, 4).map(x => `${esc(x.subject)} ${x.percent}%`).join(" · ");
-  return `<div class="big">${s[0].percent}% <small>${esc(s[0].subject)}${rest ? " · " + rest : ""}</small></div>`;
+  return s.slice(0, 5).map(x => {
+    const tone = x.percent < 50 ? "late" : x.percent < 65 ? "soon" : "";
+    const w = Math.max(1, Math.min(10, Math.round(x.percent / 10)));
+    return `<div class="score"><span class="${tone}">${esc(x.subject)}</span>` +
+      `<div class="track"><i class="w${w}"></i></div><b class="${tone}">${x.percent}%</b></div>`;
+  }).join("");
+}
+
+export function tasksHtml(d) {
+  const t = d.tasks || [];
+  if (!t.length) return `<div class="empty">No open tasks.</div>`;
+  return t.map(i => row(i.text, i.when, i.tone === "normal" ? "" : i.tone)).join("");
+}
+
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+
+// The month as a grid of dots: a larger dot on exam days and deadline days, a ring on today.
+export function monthHtml(d) {
+  const m = d.month;
+  if (!m || !m.days) return `<div class="empty">No calendar yet.</div>`;
+  const heads = WEEKDAYS.map(w => `<span class="wd">${w}</span>`).join("");
+  const blanks = Array.from({ length: m.offset || 0 }, () => `<span class="blank"></span>`).join("");
+  const days = m.days.map(x =>
+    `<span class="day${x.kind ? " " + esc(x.kind) : ""}" data-day="${Number(x.day)}"><i></i></span>`).join("");
+  return `<div class="cal">${heads}${blanks}${days}</div>`;
+}
+
+// Shown only while the phone mic is expected but not connected.
+export function micHtml(d) {
+  const h = d.mic_hint;
+  if (!h) return "";
+  return `<div class="row"><span>Open on your phone</span><span class="soon">${esc(h.url)}</span></div>` +
+    `<div class="row"><span>Code</span><span class="soon">${esc(h.code)}</span></div>`;
 }
 
 export function nextHtml(d) {

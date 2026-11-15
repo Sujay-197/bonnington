@@ -1,5 +1,6 @@
 import { connect } from "./bridge.js";
-import { countsHtml, focusHtml, nextHtml, projectsHtml, scoresHtml, statusRight, weekHtml } from "./cards.js";
+import { countsHtml, focusHtml, micHtml, monthHtml, nextHtml, projectsHtml, scoresHtml, statusRight, tasksHtml,
+         weekHtml } from "./cards.js";
 import { createGlobe } from "./globe.js";
 import { initialState, linesActive, memoryNote, reduce } from "./store.js";
 import { renderSubtitles } from "./subtitles.js";
@@ -26,7 +27,8 @@ connect(`ws://127.0.0.1:${port}`, (ev) => {
 createGlobe($("globe"), () => state);
 
 // --- cards: re-rendered only when their data or highlight actually changes ---------------------------
-const BUILDERS = { week: weekHtml, counts: countsHtml, scores: scoresHtml, next: nextHtml, projects: projectsHtml, focus: focusHtml };
+const BUILDERS = { week: weekHtml, tasks: tasksHtml, counts: countsHtml, scores: scoresHtml, next: nextHtml,
+                   projects: projectsHtml, focus: focusHtml, month: monthHtml };
 let shownDash = null, shownCards = "", shownStatus = null;
 function renderCards() {
   if (state.dash !== shownDash) {
@@ -35,6 +37,11 @@ function renderCards() {
     for (const [name, build] of Object.entries(BUILDERS)) {
       $(`card-${name}`).querySelector(".body").innerHTML = shownDash ? build(d) : `<div class="empty">Waiting for data…</div>`;
     }
+    const mic = shownDash ? micHtml(d) : "";            // only present while the phone mic is not connected
+    $("card-mic").querySelector(".body").innerHTML = mic;
+    $("card-mic").hidden = !mic;
+    const monthLab = $("card-month").querySelector(".lab span");
+    monthLab.textContent = (d.month && d.month.label) || "MONTH";
     $("t-brit").textContent = shownDash ? `BRITNEY ${d.britney}` : "";
     $("b-left").textContent = (d.status && d.status.left) || "";
   }
