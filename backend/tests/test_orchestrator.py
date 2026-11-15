@@ -208,3 +208,23 @@ async def test_no_hint_when_mic_source_is_fine(rig):
     rig.wake_on_frame(0, "britney")
     await rig.run_until_idle()
     assert not any("not connected" in s for s in rig.subtitles())
+
+
+async def test_goodbye_ends_the_conversation_without_a_followup_window(rig):
+    rig.wake_on_frame(0, "britney")
+    rig.turn.turns.extend([(0, 4), (20, 4)])            # says goodbye, then keeps talking to someone else
+    rig.stt.finals.extend(["Alright then, that's it for today. Bye-bye.", "why are you still lingering"])
+    await rig.run_until_idle()
+    assert rig.brain_calls == 1
+    assert "parting line" in rig.brain_inputs[0]
+    types = rig.event_types()
+    last_speaking = len(types) - 1 - types[::-1].index("state:speaking")
+    assert [t for t in types[last_speaking + 1:] if t.startswith("state:")] == ["state:idle"]
+
+
+async def test_ordinary_turn_still_gets_a_followup_window(rig):
+    rig.wake_on_frame(0, "britney")
+    rig.turn.turns.extend([(0, 4), (20, 4)])
+    rig.stt.finals.extend(["that's it, the exam is on the 24th", "and one more thing"])
+    await rig.run_until_idle()
+    assert rig.brain_calls == 2

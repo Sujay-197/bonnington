@@ -31,6 +31,29 @@ PREROLL_FRAMES = 6  # 0.5 s kept from before speech is detected in a follow-up
 MAX_BUFFER_FRAMES = 25  # last 2 s of audio kept while models load (replay blocks the loop ~0.5 s)
 
 
+_FAREWELLS = ("bye", "bye bye", "goodbye", "good night", "goodnight", "see you", "see you later",
+              "that's it for today", "that's it for now", "that's it for tonight", "that's all for today",
+              "that's all for now", "that's all for tonight", "that's all", "that's it", "you can go",
+              "you can go now", "go to sleep", "we're done", "we're done here", "go away", "be gone",
+              "stop listening", "dismissed")
+_LEAVING_NOTE = " [They are leaving. Give one short parting line and nothing else.]"
+
+
+def is_farewell(text: str) -> bool:
+    """True when the user is ending the conversation: a goodbye at the end of what they said, or on its own."""
+    import re
+    words = re.findall(r"[a-z']+", text.lower().replace("-", " ").replace("\u2019", "'"))
+    if not words:
+        return False
+    joined = " " + " ".join(words) + " "
+    for phrase in _FAREWELLS:
+        if joined.endswith(" " + phrase + " "):
+            return True
+        if len(words) <= 5 and f" {phrase} " in joined and phrase not in ("that's it", "that's all"):
+            return True
+    return False
+
+
 @dataclass
 class Deps:
     source: Any
@@ -70,6 +93,7 @@ class Orchestrator:
         self._preroll: deque = deque(maxlen=PREROLL_FRAMES + 1)
         self._parser = MoodParser("neutral")
         self._line_id = 0
+        self._leaving = False
 
     # --- public ---------------------------------------------------------------
     @property
@@ -180,6 +204,9 @@ class Orchestrator:
         log.info("heard: %s", text)
         msg = f"{self._note} {text}" if self._note else text
         self._note = None
+        self._leaving = is_farewell(text)
+        if self._leaving:
+            msg += _LEAVING_NOTE
         self.last_interaction = self._clock()
         self._set_state("thinking")
         self._reply_task = asyncio.create_task(self._reply(msg))
@@ -270,6 +297,9 @@ class Orchestrator:
                 if not await d.player.play(item):
                     return  # interrupted
             self.last_interaction = self._clock()
+            if self._leaving:              # they said goodbye: stop listening
+                self._end_session()
+                return
             self._window_start = self._clock()
             d.turn.reset()
             self._preroll.clear()
