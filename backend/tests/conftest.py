@@ -34,3 +34,89 @@ class FakeOllama:
 @pytest.fixture
 def fake_ollama():
     return FakeOllama()
+
+
+class FakeOutputStream:
+    """Mimics sounddevice.OutputStream: write() blocks for the block's real duration."""
+
+    def __init__(self, samplerate, channels=1, dtype="float32", **_):
+        self.samplerate = samplerate
+        self.written = 0
+        self.closed = False
+
+    def start(self):
+        pass
+
+    def write(self, block):
+        import time
+        self.written += len(block)
+        time.sleep(len(block) / self.samplerate)
+
+    def stop(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def fake_output_stream():
+    return FakeOutputStream
+
+
+class _FlakyStream:
+    def __init__(self, owner, fail_after):
+        self.owner, self.fail_after, self.reads = owner, fail_after, 0
+
+    def start(self):
+        pass
+
+    def read(self, n):
+        import numpy as np
+        self.reads += 1
+        if self.fail_after is not None and self.reads > self.fail_after:
+            raise OSError("device unplugged")
+        return np.zeros((n, 1), np.int16), False
+
+    def stop(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class FlakyStreamFactory:
+    """First stream dies after `fail_after` reads; later streams are healthy."""
+
+    def __init__(self, fail_after):
+        self.fail_after, self.opens = fail_after, 0
+
+    def __call__(self, **kw):
+        self.opens += 1
+        return _FlakyStream(self, self.fail_after if self.opens == 1 else None)
+
+
+@pytest.fixture
+def flaky_stream_factory():
+    holder = {}
+
+    def make(fail_after):
+        holder["f"] = FlakyStreamFactory(fail_after)
+        return holder["f"]
+
+    class Proxy:
+        def __call__(self, fail_after):
+            return make(fail_after)
+
+        @property
+        def opens(self):
+            return holder["f"].opens
+    return Proxy()
+
+
+@pytest.fixture
+def fake_vad():
+    def make(script):
+        it = iter(script)
+        return lambda frame: bool(next(it, 0))
+    return make
