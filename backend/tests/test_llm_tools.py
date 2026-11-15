@@ -209,3 +209,59 @@ def test_history_trim_never_starts_mid_exchange(fake_ollama, tracker):
                       {"role": "assistant", "content": f"a{i}"}]
     b._trim()
     assert len(b.history) <= 20 and b.history[0]["role"] == "user" and b.history[-1]["content"] == "a8"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("So tomorrow I have an exam in mathematics for uh", True),
+    ("CN lab report three is due this Friday.", True),
+    ("I scored 38 out of 50 in the DBMS midterm one.", True),
+    ("Remind me to renew my passport by first of December", True),
+    ("add this to my schedule, I have a quiz on the 24th", True),
+    ("I got 16 marks in the CN quiz", True),
+    ("When is my next exam?", False),
+    ("What's left for this week?", False),
+    ("Do I have any assignment due tomorrow", False),
+    ("how did I do in the DBMS exam", False),
+    ("How are you doing", False),
+    ("Explain what a B plus tree is.", False),
+    ("I hate exams", False),
+])
+def test_looks_like_a_report(text, expected):
+    from bonnington.brain.llm import looks_like_a_report
+    assert looks_like_a_report(text) is expected
+
+
+async def test_a_report_gets_a_record_it_hint_that_is_not_kept_in_history(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_exam", "args": {"subject": "Mathematics", "date": "tomorrow"}}],
+                         ["<mood:neutral>Mathematics, tomorrow."]]
+    b = Brain("m", client=fake_ollama, tracker=tracker)
+    await _say(b, "So tomorrow I have an exam in mathematics for uh")
+    first = fake_ollama.calls[0]["messages"][-1]
+    assert first["role"] == "user" and first["content"].startswith("So tomorrow I have an exam")
+    assert "Record it now" in first["content"]
+    assert b.history[0] == {"role": "user", "content": "So tomorrow I have an exam in mathematics for uh"}
+
+
+async def test_a_question_gets_no_hint(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:neutral>Tuesday."]]
+    await _say(Brain("m", client=fake_ollama, tracker=tracker), "When is my next exam?")
+    assert fake_ollama.calls[0]["messages"][-1]["content"] == "When is my next exam?"
+
+
+async def test_an_empty_reply_is_retried_once(fake_ollama, tracker):
+    fake_ollama.turns = [[], ["<mood:neutral>Here I am."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "How are you doing")
+    assert out == "<mood:neutral>Here I am."
+
+
+async def test_two_empty_replies_give_a_spoken_fallback(fake_ollama, tracker):
+    fake_ollama.turns = [[], [], ["never reached"]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "How are you doing")
+    assert out == "<mood:neutral>Say that again."
+    assert len([c for c in fake_ollama.calls if c.get("stream")]) == 2
+
+
+async def test_saving_then_saying_nothing_reads_the_result_back(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "Call the bank"}}], []]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "remind me to call the bank")
+    assert out == "<mood:neutral>Saved task: Call the bank, no due date."

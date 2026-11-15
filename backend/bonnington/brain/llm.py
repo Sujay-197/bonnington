@@ -84,12 +84,16 @@ class Brain:
         self._append("user", user_text)
         extra: list[dict[str, Any]] = []   # this turn's tool calls and results
         said: list[str] = []
-        tools_ran = retried = False
+        tools_ran = retried = empty_retried = False
+        hinted = self.tracker is not None and looks_like_a_report(user_text)
+        last_result = ""
         try:
             for round_no in range(MAX_TOOL_ROUNDS + 1):
                 history = self.history
                 if retried and not tools_ran:
                     history = [*self.history[:-1], {"role": "user", "content": user_text + _FORCE}]
+                elif hinted and not tools_ran:
+                    history = [*self.history[:-1], {"role": "user", "content": user_text + _HINT}]
                 kw: dict[str, Any] = dict(messages=[self._system(), *history, *extra], stream=True,
                                           think=False, keep_alive=KEEP_ALIVE)
                 if self.tracker is not None and round_no < MAX_TOOL_ROUNDS:
@@ -141,6 +145,14 @@ class Brain:
                     else:
                         said.append(tail)
                         yield tail
+                if not calls and not round_started and not held and not said and not tools_ran and not retried:
+                    if empty_retried:      # he came back with nothing twice: say something rather than go silent
+                        said.append(_EMPTY)
+                        yield _EMPTY
+                        break
+                    log.warning("empty reply; asking again")
+                    empty_retried = True
+                    continue
                 silent_redo = retried and not tools_ran and not calls and not round_started
                 if (held or silent_redo) and not calls:
                     log.warning("claimed a save without a tool call: %s", "".join(held)[:120])
@@ -162,7 +174,12 @@ class Brain:
                     result = self.tracker.call(name, args) if self.tracker is not None else "ERROR: no tools"
                     log.info("tool %s(%s) -> %s", name, args, result)
                     extra.append({"role": "tool", "tool_name": name, "content": result})
+                    last_result = result
                 tools_ran = True
+            if tools_ran and not said and last_result and not last_result.startswith("ERROR"):
+                line = "<mood:neutral>" + last_result.splitlines()[0]   # he saved but said nothing: read it back plainly
+                said.append(line)
+                yield line
         except (httpx.HTTPError, ConnectionError) as e:
             raise BrainUnavailable(f"Ollama stream failed: {e}") from e
         finally:
@@ -175,6 +192,27 @@ class Brain:
 
 
 _FAILED = "I did not manage to save that. Tell me again, plainly."
+_EMPTY = "<mood:neutral>Say that again."
+_HINT = ("\n[This may be something to record. Record it now with the matching tool, using what was said, "
+         "if so; ask for missing details afterwards.]")
+
+_QUESTION = re.compile(r"^\s*(what|what's|when|when's|which|who|how|where|why|do|does|did|is|are|am|can|could|"
+                       r"should|will|would|have i|tell me|show me|list|explain)\b", re.IGNORECASE)
+_THING = re.compile(r"\b(exams?|tests?|quiz|quizzes|midterms?|viva|assignments?|lab report|submission|deadline|"
+                    r"presentation|review)\b", re.IGNORECASE)
+_DATED = re.compile(r"\b(today|tonight|tomorrow|day after|next|this|due|by|mon|tues?|wed(nes)?|thur?s?|fri|"
+                    r"sat(ur)?|sun)(day)?\b|\b\d{1,2}(st|nd|rd|th)\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|"
+                    r"nov|dec)[a-z]*\b", re.IGNORECASE)
+_SCORED = re.compile(r"\b(scored|score of|marks|out of)\b|\bgot \d+|\d+\s*/\s*\d+", re.IGNORECASE)
+_ASKED = re.compile(r"\b(remind me|add (this|that|a|an|it)\b|note (this|that|it)|put (this|that|it) (in|on)|"
+                    r"to my (schedule|calendar|tasks|list))", re.IGNORECASE)
+
+
+def looks_like_a_report(text: str) -> bool:
+    """True when the user seems to be telling him something to record (not asking about what is recorded)."""
+    if "?" in text or _QUESTION.search(text):
+        return False
+    return bool((_THING.search(text) and _DATED.search(text)) or _SCORED.search(text) or _ASKED.search(text))
 _SENTENCE = re.compile(r".*?[.!?\u2026]+[\"')\]]*\s+", re.DOTALL)
 
 
