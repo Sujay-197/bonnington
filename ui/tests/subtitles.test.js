@@ -19,3 +19,13 @@ test("mood table matches spec", () => {
     smug: [175, 169, 236], serious: [133, 183, 235], disappointed: [150, 150, 145],
   });
 });
+
+import { statusText } from "../src/subtitles.js";
+import { initialState as init } from "../src/store.js";
+
+test("status cue while listening and waking", () => {
+  expect(statusText({ ...init(), phase: "listening" })).toBe("listening…");
+  expect(statusText({ ...init(), phase: "waking" })).toBe("waking up…");
+  expect(statusText({ ...init(), phase: "thinking" })).toBe("");
+  expect(statusText({ ...init(), phase: "listening", userText: "hey" })).toBe("");
+});

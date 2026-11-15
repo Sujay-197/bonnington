@@ -166,6 +166,7 @@ class Orchestrator:
             self._end_session()
             return
         self.d.bridge.broadcast(UserFinalEvent(text))
+        log.info("heard: %s", text)
         msg = f"{self._note} {text}" if self._note else text
         self._note = None
         self.last_interaction = self._clock()
@@ -244,6 +245,7 @@ class Orchestrator:
                 if isinstance(item, BaseException):
                     raise item
                 self._set_state("speaking")
+                log.info("says: %s", item.text)
                 self._line_id += 1
                 d.bridge.broadcast(SubtitleLineEvent(self._line_id, item.text, item.duration_ms,
                                                      list(item.word_offsets_ms)))
@@ -312,5 +314,6 @@ class Orchestrator:
         else:
             phase = self.state
         if phase != self._phase:
+            log.info("state -> %s", phase)
             self._phase = phase
             self.d.bridge.broadcast(StateEvent(phase))  # type: ignore[arg-type]

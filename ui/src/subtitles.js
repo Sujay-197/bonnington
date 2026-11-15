@@ -21,12 +21,20 @@ export function renderSubtitles(el, userEl, state, nowMs) {
     return `<div style="opacity:${opacity.toFixed(2)};transition:opacity .2s">${escapeHtml(visibleWords(line, nowMs))}</div>`;
   }).join("");
   if (el.innerHTML !== html) el.innerHTML = html;
-  let userOpacity = state.userText ? 1 : 0;
+  let userOpacity = state.userText || statusText(state) ? 1 : 0;
   if (state.userTextAt != null) userOpacity = Math.max(0, 1 - (nowMs - state.userTextAt - USER_FADE_AFTER_MS) / FADE_MS);
-  userEl.textContent = state.userText;
+  userEl.textContent = state.userText || statusText(state);
   userEl.style.opacity = Math.min(1, userOpacity).toFixed(2);
 }
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// A quiet cue so you can tell he's listening before you've said anything.
+export function statusText(state) {
+  if (state.userText) return "";
+  if (state.phase === "waking") return "waking up…";
+  if (state.phase === "listening") return "listening…";
+  return "";
 }

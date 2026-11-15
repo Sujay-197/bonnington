@@ -11,6 +11,9 @@ from enum import Enum
 log = logging.getLogger(__name__)
 
 
+SLEEP_AFTER_PROBES = 2
+
+
 class Level(Enum):
     OFF = "off"
     ASLEEP = "asleep"
@@ -45,6 +48,7 @@ class LifecycleController:
         self._dnd = False
         self._wake_requested = False
         self._override_probes = False
+        self._busy_streak = 0  # consecutive probes that saw a game/call
         self._awake_since = 0.0
         self._kick: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -92,6 +96,13 @@ class LifecycleController:
             except Exception as e:  # a probe failure must never kill the assistant
                 log.warning("system probe failed: %s", e)
                 fullscreen = busy = False
+        # Debounce: a screenshot overlay or a notification must not put him to sleep, and nothing
+        # puts him to sleep while you're mid-conversation.
+        self._busy_streak = self._busy_streak + 1 if (fullscreen or busy) else 0
+        if self._busy_streak < SLEEP_AFTER_PROBES or getattr(self.orch, "active", False):
+            fullscreen = busy = False
+        elif fullscreen or busy:
+            log.info("sleeping: fullscreen=%s mic_busy=%s", fullscreen, busy)
         idle_s = self.clock() - max(self.orch.last_interaction, self._awake_since)
         new = next_level(self.level, fullscreen=fullscreen, mic_busy=busy, manual_dnd=self._dnd,
                          wake_requested=woke, idle_s=idle_s, idle_unload_s=self.idle_unload_s)

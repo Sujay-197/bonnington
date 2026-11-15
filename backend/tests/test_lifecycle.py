@@ -40,6 +40,7 @@ async def test_controller_closes_mic_when_asleep_and_unloads_when_dormant(fake_w
     assert c.level == Level.AWAKE and fake_world.ui.shown
     fake_world.fullscreen = True
     await fake_world.tick()
+    await fake_world.tick()
     assert c.level == Level.ASLEEP and not fake_world.mic.is_open
     assert fake_world.orch.unloaded and not fake_world.ui.shown
 
@@ -58,6 +59,7 @@ async def test_hotkey_wakes_from_asleep_despite_game(fake_world):
     c = fake_world.controller()
     fake_world.fullscreen = True
     await fake_world.tick()
+    await fake_world.tick()
     assert c.level == Level.ASLEEP and not fake_world.mic.is_open
     fake_world.wake()
     await fake_world.tick()
@@ -65,6 +67,7 @@ async def test_hotkey_wakes_from_asleep_despite_game(fake_world):
     await fake_world.tick()
     assert c.level == Level.AWAKE          # probes bypassed until next idle
     fake_world.now = 601
+    await fake_world.tick()
     await fake_world.tick()
     await fake_world.tick()
     assert c.level == Level.ASLEEP
@@ -119,3 +122,32 @@ async def test_always_listening_keeps_mic_open_when_dormant(fake_world):
 def test_controller_registers_session_end_callback(fake_world):
     fake_world.controller()
     assert fake_world.orch.on_session_end is not None
+
+
+async def test_brief_fullscreen_blip_does_not_sleep(fake_world):
+    c = fake_world.controller()
+    fake_world.fullscreen = True          # e.g. the screenshot overlay
+    await fake_world.tick()
+    assert c.level == Level.DORMANT
+    fake_world.fullscreen = False
+    await fake_world.tick()
+    assert c.level == Level.DORMANT
+
+
+async def test_sustained_fullscreen_sleeps_after_two_probes(fake_world):
+    c = fake_world.controller()
+    fake_world.fullscreen = True
+    await fake_world.tick()
+    await fake_world.tick()
+    assert c.level == Level.ASLEEP
+
+
+async def test_no_sleep_during_active_conversation(fake_world):
+    c = fake_world.controller()
+    fake_world.orch.active = True
+    fake_world.wake()
+    await fake_world.tick()
+    fake_world.fullscreen = True
+    for _ in range(3):
+        await fake_world.tick()
+    assert c.level == Level.AWAKE

@@ -141,3 +141,13 @@ async def test_active_while_trigger_pending(rig):
     assert rig.orch.active is False
     rig.orch.trigger("hotkey")
     assert rig.orch.active is True
+
+
+async def test_logs_states_and_transcript(rig, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="bonnington.orchestrator")
+    rig.wake_on_frame(0, "britney")
+    rig.stt_final("what's left")
+    await rig.run_until_idle()
+    text = caplog.text
+    assert "state -> listening" in text and "heard: what's left" in text
