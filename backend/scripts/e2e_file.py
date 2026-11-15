@@ -14,7 +14,7 @@ from bonnington.brain.llm import Brain
 from bonnington.config import load_settings
 from bonnington.orchestrator import Deps, Orchestrator
 from bonnington.store import GrudgeStore
-from bonnington.stt import SherpaSTT
+from bonnington.stt import build_stt
 from bonnington.tts import TTSEngine
 from bonnington.vad import TurnDetector
 from bonnington.wake import SttWake
@@ -77,7 +77,7 @@ async def main():
     src = FileSource(clip)
     player = AudioPlayer(lambda v: None, stream_factory=NullStream)
     deps = Deps(source=src, wake=SttWake(s.wake_phrases, s, min_similarity=s.wake_similarity),
-                turn=TurnDetector(), stt=SherpaSTT(s), brain=Brain(s.llm_model), tts=TTSEngine(s),
+                turn=TurnDetector(silence_ms=s.turn_silence_ms), stt=build_stt(s), brain=Brain(s.llm_model), tts=TTSEngine(s),
                 player=player, bridge=Bridge(), store=GrudgeStore("data/e2e_test.db"), settings=s)
     orch = Orchestrator(deps)
     src.orch = orch

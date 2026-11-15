@@ -19,6 +19,8 @@ class Settings:
     always_listening: bool = False  # False = hotkey first: mic closed while dormant
     llm_model: str = "gemma4:12b"
     stt_model_dir: str = "data/models/stt/sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
+    stt_final_model_dir: str = "data/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+    turn_silence_ms: int = 1000  # how long a pause ends your turn
     tts_model: str = "data/models/tts/Qwen3-TTS-12Hz-1.7B-Base"
     voice_ref_wav: str = "data/voice/reference.wav"
     voice_ref_text: str = "data/voice/reference.txt"

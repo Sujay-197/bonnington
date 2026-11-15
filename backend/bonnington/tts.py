@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import queue
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,13 +18,19 @@ _SENTENCE_PAUSE = 4.0
 
 @dataclass
 class Utterance:
+    """Audio for one sentence. Either complete (`pcm`) or streamed: chunks arrive on `stream`, None ends it."""
+
     pcm: np.ndarray
     sample_rate: int
     text: str
     word_offsets_ms: list[int] = field(default_factory=list)
+    stream: queue.Queue | None = None
+    est_duration_ms: int | None = None
 
     @property
     def duration_ms(self) -> int:
+        if self.est_duration_ms is not None:
+            return self.est_duration_ms
         return int(round(len(self.pcm) / self.sample_rate * 1000))
 
 
@@ -43,13 +51,20 @@ def estimate_word_offsets(text: str, duration_ms: int) -> list[int]:
     return [int(s / pos * duration_ms) for s in starts]
 
 
+SECONDS_PER_CHAR = 0.065  # starting guess for speech length; refined from real audio
+CHUNK_STEPS = 8           # ~0.67 s of audio per streamed chunk
+
+
 class TTSEngine:
-    """Qwen3-TTS Base (via faster-qwen3-tts CUDA graphs) cloning the reference voice picked during voice design."""
+    """Qwen3-TTS Base (faster-qwen3-tts, CUDA graphs) in the locked reference voice, streamed chunk by chunk."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._model = None
         self._ref_text = ""
+        self._gen_lock = threading.Lock()   # the model is not re-entrant: one generation at a time
+        self._cancel = threading.Event()
+        self._s_per_char = SECONDS_PER_CHAR
 
     @property
     def is_loaded(self) -> bool:
@@ -62,7 +77,9 @@ class TTSEngine:
 
         self._ref_text = Path(self.settings.voice_ref_text).read_text(encoding="utf-8").strip()
         self._model = FasterQwen3TTS.from_pretrained(self.settings.tts_model, local_files_only=True)
-        self.synth("Ready.")  # first call captures the CUDA graphs
+        u = self.synth("Ready.")  # first call captures the CUDA graphs
+        while u.stream.get() is not None:
+            pass
 
     def unload(self) -> None:
         if self._model is None:
@@ -70,17 +87,54 @@ class TTSEngine:
         import gc
 
         import torch
-        self._model = None
+        self.cancel()
+        with self._gen_lock:
+            self._model = None
         gc.collect()
         torch.cuda.empty_cache()
 
+    def cancel(self) -> None:
+        """Stop the generation in progress (he was interrupted)."""
+        self._cancel.set()
+
     def synth(self, sentence: str) -> Utterance:
+        """Start speaking `sentence`. Returns as soon as the first chunk of audio exists."""
         if self._model is None:
             raise RuntimeError("TTSEngine.synth called before load()")
-        wavs, sr = self._model.generate_voice_clone(
-            text=sentence, language="English",
-            ref_audio=self.settings.voice_ref_wav, ref_text=self._ref_text)
-        pcm = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
-        u = Utterance(pcm, int(sr), sentence)
-        u.word_offsets_ms = estimate_word_offsets(sentence, u.duration_ms)
+        self._gen_lock.acquire()            # wait for the previous sentence to finish generating
+        self._cancel.clear()
+        est = max(300, int(len(sentence) * self._s_per_char * 1000))
+        u = Utterance(np.zeros(0, np.float32), 24000, sentence,
+                      estimate_word_offsets(sentence, est), stream=queue.Queue(), est_duration_ms=est)
+        first = threading.Event()
+        threading.Thread(target=self._generate, args=(u, first), daemon=True).start()
+        first.wait()
         return u
+
+    def _generate(self, u: Utterance, first: threading.Event) -> None:
+        samples = 0
+        try:
+            gen = self._model.generate_voice_clone_streaming(
+                text=u.text, language="English", ref_audio=self.settings.voice_ref_wav,
+                ref_text=self._ref_text, chunk_size=CHUNK_STEPS)
+            try:
+                for chunk, sr, _timing in gen:
+                    u.sample_rate = int(sr)
+                    pcm = np.asarray(chunk, dtype=np.float32).reshape(-1)
+                    samples += len(pcm)
+                    u.stream.put(pcm)
+                    first.set()
+                    if self._cancel.is_set():
+                        break
+            finally:
+                gen.close()
+            if samples and not self._cancel.is_set() and len(u.text) >= 8:
+                actual = samples / u.sample_rate / len(u.text)
+                self._s_per_char = 0.5 * self._s_per_char + 0.5 * actual
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("speech generation failed")
+        finally:
+            u.stream.put(None)
+            first.set()
+            self._gen_lock.release()

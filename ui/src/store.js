@@ -14,7 +14,7 @@ export function reduce(state, ev, now) {
     case "mood":
       return MOODS.includes(ev.value) ? { ...state, mood: ev.value } : state;
     case "user_partial":
-      return { ...state, userText: ev.text, userTextAt: null };
+      return { ...state, userText: ev.text, userTextAt: null, lines: [] };
     case "user_final":
       return { ...state, userText: ev.text, userTextAt: now };
     case "subtitle_line": {
@@ -28,4 +28,11 @@ export function reduce(state, ev, now) {
     default:
       return state;
   }
+}
+
+const FADE_MS = 600;
+
+// True while one of his subtitle lines is still being spoken or fading out.
+export function linesActive(state, now) {
+  return state.lines.some(l => now < l.startedAt + l.durationMs + FADE_MS);
 }

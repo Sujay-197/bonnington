@@ -28,8 +28,8 @@ def _pick(d: Path, stem: str) -> str:
 
 
 class SherpaSTT:
-    def __init__(self, settings: Settings, num_threads: int = 4) -> None:
-        self.dir = Path(settings.stt_model_dir)
+    def __init__(self, settings: Settings, num_threads: int = 4, model_dir: str | None = None) -> None:
+        self.dir = Path(model_dir or settings.stt_model_dir)
         self.streaming = "parakeet" not in self.dir.name
         self.num_threads = num_threads
         self._rec = None
@@ -98,3 +98,42 @@ class SherpaSTT:
         self._rec.decode_stream(s)
         self._audio = []
         return s.result.text.strip()
+
+
+class HybridSTT:
+    """Live partials from the streaming model; the final transcript from a more accurate offline model."""
+
+    def __init__(self, live: STTEngine, accurate: STTEngine) -> None:
+        self.live, self.accurate = live, accurate
+
+    @property
+    def is_loaded(self) -> bool:
+        return bool(self.live.is_loaded and self.accurate.is_loaded)
+
+    def load(self) -> None:
+        self.live.load()
+        self.accurate.load()
+
+    def unload(self) -> None:
+        self.live.unload()
+        self.accurate.unload()
+
+    def start_turn(self) -> None:
+        self.live.start_turn()
+        self.accurate.start_turn()
+
+    def feed(self, frame: np.ndarray) -> str | None:
+        self.accurate.feed(frame)
+        return self.live.feed(frame)
+
+    def finish(self) -> str:
+        fallback = self.live.finish()
+        return self.accurate.finish() or fallback
+
+
+def build_stt(settings: Settings) -> STTEngine:
+    live = SherpaSTT(settings)
+    final_dir = getattr(settings, "stt_final_model_dir", "")
+    if final_dir and Path(final_dir).is_dir():
+        return HybridSTT(live, SherpaSTT(settings, model_dir=final_dir))
+    return live

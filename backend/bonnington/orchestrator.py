@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -19,12 +20,14 @@ from .events import (ClearSubtitlesEvent, MoodEvent, StateEvent, SubtitleLineEve
                      UserFinalEvent, UserPartialEvent)
 from .store import GrudgeStore, SummonKind
 from .tts import estimate_word_offsets
+from .wake import normalise_names
 
 log = logging.getLogger(__name__)
 
 State = Literal["idle", "listening", "thinking", "speaking", "followup"]
 OFFLINE_TEXT = "My brain is offline. Start Ollama."
 HM_AFTER_S = 3.0
+PREROLL_FRAMES = 6  # 0.5 s kept from before speech is detected in a follow-up
 MAX_BUFFER_FRAMES = 25  # last 2 s of audio kept while models load (replay blocks the loop ~0.5 s)
 
 
@@ -64,6 +67,7 @@ class Orchestrator:
         self._reply_task: asyncio.Task | None = None
         self._window_start = 0.0
         self._heard_speech = False
+        self._preroll: deque = deque(maxlen=PREROLL_FRAMES + 1)
         self._parser = MoodParser("neutral")
         self._line_id = 0
 
@@ -126,11 +130,14 @@ class Orchestrator:
             if hit:
                 self._summon(hit)
                 return
+            self._preroll.append(frame)
             if self.d.turn.feed(frame) == "speech_start":
                 self._heard_speech = True
                 self._set_state("listening")
                 self.d.stt.start_turn()
-                self._feed_stt(frame)
+                for f in self._preroll:  # includes the audio from just before speech was detected
+                    self._feed_stt(f)
+                self._preroll.clear()
             elif self._clock() - self._window_start >= s.followup_seconds:
                 self._end_session()
         elif self.state == "listening":
@@ -161,7 +168,7 @@ class Orchestrator:
             self.d.bridge.broadcast(UserPartialEvent(partial))
 
     def _finish_turn(self) -> None:
-        text = self.d.stt.finish().strip()
+        text = normalise_names(self.d.stt.finish().strip())
         if not text:
             # Noise or a breath, not words: keep listening until the window runs out.
             log.info("heard nothing (noise); still listening")
@@ -234,6 +241,8 @@ class Orchestrator:
         if self._reply_task is not None and not self._reply_task.done():
             self._reply_task.cancel()
         self._reply_task = None
+        if hasattr(self.d.tts, "cancel"):
+            self.d.tts.cancel()
         self.d.player.stop()
         self.d.bridge.broadcast(ClearSubtitlesEvent())
 
@@ -258,6 +267,7 @@ class Orchestrator:
             self.last_interaction = self._clock()
             self._window_start = self._clock()
             d.turn.reset()
+            self._preroll.clear()
             self._set_state("followup")
         except BrainUnavailable as e:
             log.warning("brain unavailable: %s", e)
@@ -314,7 +324,7 @@ class Orchestrator:
         if self.state == "listening" and self.loading:
             phase = "waking"
         elif self.state == "followup":
-            phase = "idle"
+            phase = "listening"  # he is still listening for a reply; the UI shows the cue
         else:
             phase = self.state
         if phase != self._phase:

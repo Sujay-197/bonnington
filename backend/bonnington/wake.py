@@ -82,3 +82,17 @@ class SttWake:
         if len(_words(text)) > MAX_WORDS:
             self._rec.reset()
         return None
+
+
+_NAMES = {"bonnington": "Bonnington", "britney": "Britney"}
+
+
+def normalise_names(text: str, min_similarity: float = 0.75) -> str:
+    """The recogniser mishears his names ("Mornington", "Brittany"); put the right spelling back."""
+    def fix(m: re.Match) -> str:
+        word = m.group(0)
+        for target, proper in _NAMES.items():
+            if SequenceMatcher(None, word.lower(), target).ratio() >= min_similarity:
+                return proper
+        return word
+    return re.sub(r"[A-Za-z']{6,}", fix, text)

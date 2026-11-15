@@ -25,3 +25,9 @@ def test_silence_only_never_starts(fake_vad):
 def test_short_gap_does_not_end_turn(fake_vad):
     td = TurnDetector(silence_ms=700, vad=fake_vad([1, 0, 0, 0, 1, 0, 0]))
     assert [td.feed(F) for _ in range(7)].count("turn_end") == 0
+
+
+def test_default_pause_before_turn_end_is_one_second(fake_vad):
+    td = TurnDetector(vad=fake_vad([1] * 3 + [0] * 13))
+    events = [td.feed(F) for _ in range(16)]
+    assert events.index("turn_end") == 15          # 13 x 80 ms = 1040 ms of silence

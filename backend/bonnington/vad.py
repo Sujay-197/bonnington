@@ -32,7 +32,7 @@ class SileroVad:
 
 
 class TurnDetector:
-    def __init__(self, silence_ms: int = 700, max_turn_s: float = 30.0,
+    def __init__(self, silence_ms: int = 1000, max_turn_s: float = 30.0,
                  vad: Callable[[np.ndarray], bool] | None = None) -> None:
         self.silence_ms = silence_ms
         self.max_turn_ms = max_turn_s * 1000

@@ -37,3 +37,24 @@ describe("store", () => {
     expect(reduce(initialState(), { type: "mood", value: "furious" }, 0).mood).toBe("neutral");
   });
 });
+
+import { linesActive } from "../src/store.js";
+
+describe("your words vs his subtitles", () => {
+  const line = { type: "subtitle_line", id: 1, text: "Hm.", duration_ms: 1000, word_offsets_ms: [0] };
+  test("his line is active while spoken and during the fade", () => {
+    const s = reduce(initialState(), line, 5000);
+    expect(linesActive(s, 5500)).toBe(true);
+    expect(linesActive(s, 6500)).toBe(true);    // still fading out
+  });
+  test("his finished line no longer hides your words", () => {
+    const s = reduce(initialState(), line, 5000);
+    expect(linesActive(s, 6700)).toBe(false);
+  });
+  test("when you start speaking, his old lines are cleared", () => {
+    let s = reduce(initialState(), line, 5000);
+    s = reduce(s, { type: "user_partial", text: "am I" }, 5200);
+    expect(s.lines).toEqual([]);
+    expect(s.userText).toBe("am I");
+  });
+});

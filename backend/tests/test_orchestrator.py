@@ -166,3 +166,31 @@ async def test_noise_turn_keeps_listening_for_real_speech(rig):
 async def test_load_buffer_is_capped_to_two_seconds(rig):
     from bonnington.orchestrator import MAX_BUFFER_FRAMES
     assert MAX_BUFFER_FRAMES == 25
+
+
+async def test_followup_replays_preroll_into_stt(rig):
+    fed = []
+    orig_start = rig.stt.start_turn
+    rig.stt.start_turn = lambda: (fed.append("start"), orig_start())[1]
+    orig_feed = rig.stt.feed
+    rig.stt.feed = lambda f: (fed.append("f"), orig_feed(f))[1]
+    rig.reply_then_speech_after(seconds=2.0)
+    await rig.run_until_idle()
+    second = fed[len(fed) - 1 - fed[::-1].index("start"):]
+    # 4 speech frames + the 6 frames (0.5 s) heard just before speech was detected
+    assert second.count("f") >= 4 + 6
+
+
+async def test_followup_window_shows_listening_phase(rig):
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    types = rig.event_types()
+    last_speaking = len(types) - 1 - types[::-1].index("state:speaking")
+    assert types[last_speaking + 1:].count("state:listening") == 1 and types[-1] == "state:idle"
+
+
+async def test_names_normalised_in_what_he_hears(rig):
+    rig.wake_on_frame(0, "britney")
+    rig.stt_final("Hello Mornington how are you")
+    await rig.run_until_idle()
+    assert rig.brain_inputs[0].endswith("Hello Bonnington how are you")

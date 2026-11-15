@@ -1,6 +1,6 @@
 import { connect } from "./bridge.js";
 import { createGlobe } from "./globe.js";
-import { initialState, reduce } from "./store.js";
+import { initialState, linesActive, reduce } from "./store.js";
 import { renderSubtitles } from "./subtitles.js";
 
 const params = new URLSearchParams(location.search);
@@ -14,8 +14,9 @@ const subs = document.getElementById("subs"), user = document.getElementById("us
 (function tick() {
   const now = performance.now();
   renderSubtitles(subs, user, state, now);
-  subs.style.visibility = state.lines.length ? "visible" : "hidden";
-  user.style.visibility = state.lines.length ? "hidden" : "visible";
+  const his = linesActive(state, now);
+  subs.style.visibility = his ? "visible" : "hidden";
+  user.style.visibility = his ? "hidden" : "visible";
   requestAnimationFrame(tick);
 })();
 
