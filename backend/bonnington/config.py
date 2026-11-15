@@ -19,8 +19,8 @@ class Settings:
     hotkey: str = "<ctrl>+<alt>+b"
     headphones_mode: bool = False
     llm_model: str = "gemma4:12b"
-    stt_model_dir: str = "data/models/stt"
-    tts_model: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+    stt_model_dir: str = "data/models/stt/sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
+    tts_model: str = "data/models/tts/Qwen3-TTS-12Hz-1.7B-Base"
     voice_ref_wav: str = "data/voice/reference.wav"
     voice_ref_text: str = "data/voice/reference.txt"
     hm_wav: str = "data/voice/hm.wav"
