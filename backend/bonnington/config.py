@@ -23,6 +23,7 @@ class Settings:
     tts_model: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
     voice_ref_wav: str = "data/voice/reference.wav"
     voice_ref_text: str = "data/voice/reference.txt"
+    hm_wav: str = "data/voice/hm.wav"
     wake_models: dict[str, str] = field(default_factory=_default_wake_models)
     wake_threshold: float = 0.5
     followup_seconds: float = 8.0

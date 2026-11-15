@@ -41,3 +41,7 @@ class MoodParser:
         self._resolved = True
         self._buf = ""
         return out
+
+    @property
+    def resolved(self) -> bool:
+        return self._resolved

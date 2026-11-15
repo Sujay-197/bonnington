@@ -137,3 +137,9 @@ def fake_oww():
                 pass
         return M()
     return make
+
+
+@pytest.fixture
+def rig(tmp_path):
+    from rig import Rig
+    return Rig(tmp_path)
