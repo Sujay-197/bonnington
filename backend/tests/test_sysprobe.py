@@ -28,3 +28,16 @@ def test_own_exe_list(fake_registry):
 @pytest.mark.parametrize("state,busy", [(1, False), (2, True), (3, True), (4, True), (5, False)])
 def test_notification_state_mapping(state, busy):
     assert _busy_state(state) is busy
+
+
+@pytest.mark.parametrize("state,exe,expected", [
+    (3, r"C:\Games\game.exe", True),
+    (2, r"C:\Program Files\vlc\vlc.exe", True),
+    (2, r"C:\Users\work\work\das_v0\ui\src-tauri\target\release\bonnington-ui.exe", False),   # his own window, full screen
+    (3, r"C:\X\BONNINGTON-UI.EXE", False),
+    (1, r"C:\Games\game.exe", False),
+    (2, "", True),
+])
+def test_own_fullscreen_window_is_not_a_game(state, exe, expected):
+    from bonnington.sysprobe import _is_other_fullscreen
+    assert _is_other_fullscreen(state, exe) is expected

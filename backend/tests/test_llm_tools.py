@@ -265,3 +265,41 @@ async def test_saving_then_saying_nothing_reads_the_result_back(fake_ollama, tra
     fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "Call the bank"}}], []]
     out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "remind me to call the bank")
     assert out == "<mood:neutral>Saved task: Call the bank, no due date."
+
+
+@pytest.mark.parametrize("text", [
+    "Just ensure that when the paper is placed before you tomorrow, your theory translates into something.",
+    "Both Calculus and Statistics are scheduled for tomorrow.",
+    "Your books are put away, I assume.",
+])
+def test_descriptions_are_not_save_claims(text):
+    from bonnington.brain.llm import _claims_a_save
+    assert _claims_a_save(text) is False
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Britney, that was not a task. Remove that.", True),
+    ("I renewed the passport, mark it done", True),
+    ("put campusai on hold", True),
+    ("that's wrong, undo it", True),
+    ("So tomorrow I have an exam in mathematics", True),
+    ("I said of course mate theory is what gets you places.", False),
+    ("What I think is more important, calculus or statistics.", False),
+    ("how are you", False),
+])
+def test_wants_change(text, expected):
+    from bonnington.brain.llm import wants_change
+    assert wants_change(text) is expected
+
+
+async def test_a_false_claim_in_small_talk_is_redone_gently_and_cannot_add_things(fake_ollama, tracker):
+    fake_ollama.turns = [["<mood:amused>Theory, is it? ", "I have noted your philosophy."],
+                         ["<mood:amused>Theory is a fine thing to hide behind."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "theory is what gets you places")
+    assert out == "<mood:amused>Theory, is it? Theory is a fine thing to hide behind."
+    redo = fake_ollama.calls[1]
+    assert "Nothing was changed" in redo["messages"][-1]["content"]
+    assert "matching tool now" not in redo["messages"][-1]["content"]
+    names = [t["function"]["name"] for t in redo["tools"]]
+    assert not any(n.startswith("add_") for n in names) and "mark_done" in names
+    assert tracker.vault.tasks() == []

@@ -14,12 +14,46 @@ def _busy_state(state: int) -> bool:
     return state in _BUSY_STATES
 
 
+OWN_WINDOWS = ("bonnington-ui.exe",)
+
+
+def _is_other_fullscreen(state: int, foreground_exe: str) -> bool:
+    """A full-screen app that is not Bonnington's own window (which the user may put in full screen)."""
+    if not _busy_state(state):
+        return False
+    return not foreground_exe.lower().replace("/", "\\").endswith(OWN_WINDOWS)
+
+
+def foreground_exe() -> str:
+    """Path of the program that owns the foreground window, or "" if it cannot be read."""
+    import ctypes
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return ""
+    pid = wintypes.DWORD(0)
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)      # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        ok = kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+        return buf.value if ok else ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def is_fullscreen_app() -> bool:
     import ctypes
     state = ctypes.c_int(0)
     if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) != 0:
         return False
-    return _busy_state(state.value)
+    if not _busy_state(state.value):
+        return False
+    return _is_other_fullscreen(state.value, foreground_exe())
 
 
 class _WinReg:

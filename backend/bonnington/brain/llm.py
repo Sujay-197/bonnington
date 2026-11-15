@@ -86,18 +86,24 @@ class Brain:
         said: list[str] = []
         tools_ran = retried = empty_retried = False
         hinted = self.tracker is not None and looks_like_a_report(user_text)
+        change = wants_change(user_text)
         last_result = ""
         try:
             for round_no in range(MAX_TOOL_ROUNDS + 1):
                 history = self.history
                 if retried and not tools_ran:
-                    history = [*self.history[:-1], {"role": "user", "content": user_text + _FORCE}]
+                    history = [*self.history[:-1],
+                               {"role": "user", "content": user_text + (_FORCE if change else _GENTLE)}]
                 elif hinted and not tools_ran:
                     history = [*self.history[:-1], {"role": "user", "content": user_text + _HINT}]
                 kw: dict[str, Any] = dict(messages=[self._system(), *history, *extra], stream=True,
                                           think=False, keep_alive=KEEP_ALIVE)
                 if self.tracker is not None and round_no < MAX_TOOL_ROUNDS:
                     kw["tools"] = self.tracker.tool_specs()
+                    if retried and not tools_ran and not change:
+                        # Small talk that produced a false "I've noted it": the redo may fix or look up
+                        # things, but must not invent new entries.
+                        kw["tools"] = [t for t in kw["tools"] if not t["function"]["name"].startswith("add_")]
                 stream = await self._call(**kw)
                 # After he has already spoken this turn, a new round's leading mood tag must not be read aloud.
                 strip = MoodParser("neutral") if said else None
@@ -230,12 +236,24 @@ _DONE = (r"(noted|recorded|saved|filed|logged|added|marked|undone|removed|delete
          r"crossed|wiped|etched|scrubbed|shelved|struck|jotted|pencill?ed|registered|entered|tucked|scheduled)")
 _DO = (r"(note|record|save|file|log|add|mark|undo|remove|delete|place|put|update|tick|cross|wipe|shelve|"
        r"strike|jot|pencil|register|enter|schedule)")
+_PASSIVE = r"(noted|recorded|saved|filed|logged|added|marked|removed|deleted|updated)"
 _CLAIM = re.compile(
     r"\bI(?:'ve| have| just)?\s+(?:\w+\s+){0,2}" + _DONE + r"\b"                       # I've noted / I have duly filed
     r"|\bI(?:'ll| will| shall)\s+(?:\w+\s+){0,2}(?:" + _DO + r"|have\s+\w+\s+" + _DONE + r")\b"  # I'll mark / I shall have it filed
-    r"|\b(?:is|are)\s+(?:now\s+|duly\s+|firmly\s+|officially\s+){0,2}" + _DONE + r"\b"   # is now noted
-    r"|(?<!not )\b(?:has|have) been\s+(?:\w+ly\s+)?" + _DONE + r"\b",                   # has been recorded
+    r"|\b(?:is|are)\s+(?:now\s+|duly\s+|firmly\s+|officially\s+){0,2}" + _PASSIVE + r"\b"   # is now noted
+    r"|(?<!not )\b(?:has|have) been\s+(?:\w+ly\s+)?" + _PASSIVE + r"\b",                   # has been recorded
     re.IGNORECASE)
+_GENTLE = ("\n[Nothing was changed: no tool was called. If the user asked for a change, call the tool; "
+           "if not, simply answer, without saying anything was saved, added, marked or removed.]")
+_CHANGE = re.compile(r"\b(remove|delete|undo|cancel|scrap|drop|mark|tick|cross off|done|finished|completed|"
+                     r"submitted|on hold|resume|wrong|not a task|change|move|postpone|reschedule)\b", re.IGNORECASE)
+
+
+def wants_change(text: str) -> bool:
+    """True when the user's words ask for something to be recorded or changed."""
+    return looks_like_a_report(text) or bool(_CHANGE.search(text))
+
+
 _FORCE = ("\n[Record or change this with the matching tool now. "
           "Do not answer in words until the tool has run.]")
 
