@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 _WEEK = re.compile(r"\b(week|today|tonight|tomorrow|left|pending|due|deadline|deadlines|exam|exams|test|"
                    r"assignment|assignments|upcoming|schedule|calendar|overdue|late)\b")
-_MONTH = re.compile(r"(month|calendar)")
+_MONTH = re.compile(r"\b(month|calendar)\b")
 _COUNTS = re.compile(r"\b(task|tasks|overdue|todo|to-do|reminder|reminders)\b")
 _SCORES = re.compile(r"\b(score|scores|scored|marks|percent|grade|grades|average)\b|\d\s*(?:out of|/)\s*\d")
 _PROJECTS = re.compile(r"\b(project|projects|dying|repo|repos|codebase|coding)\b")
