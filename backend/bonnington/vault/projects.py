@@ -44,8 +44,33 @@ def _read_chunks(p: Path) -> list[str]:
     return (head + b"\n" + tail).decode("utf-8", errors="replace").splitlines()
 
 
+_SECRET_WORDS = re.compile(r"api[-_ ]?key|secret|password|passwd|token|bearer|authorization|private key",
+                           re.IGNORECASE)
+_LONG_TOKEN = re.compile(r"[A-Za-z0-9_\-.]{24,}")
+_HIDDEN = "(a request containing a key or password, hidden)"
+_NOT_TYPED = ("<", "[Request interrupted", "Caveat:")
+MAX_REQUEST_CHARS = 160
+
+
+def _clean_request(text: str) -> str | None:
+    """A past request, safe to show and say: no injected text, no secrets, not too long."""
+    text = " ".join(text.split())
+    if not text or text.startswith(_NOT_TYPED) or "<system-reminder>" in text or "<command-name>" in text:
+        return None
+    if _SECRET_WORDS.search(text) or any(re.search(r"\d", t) and re.search(r"[A-Za-z]", t)
+                                         for t in _LONG_TOKEN.findall(text)):
+        return _HIDDEN
+    return text if len(text) <= MAX_REQUEST_CHARS else text[:MAX_REQUEST_CHARS].rstrip() + "\u2026"
+
+
 def _session_info(p: Path) -> tuple[str, str, str]:
+    cwd, title, branch, _ = _parse_session(p)
+    return cwd, title, branch
+
+
+def _parse_session(p: Path) -> tuple[str, str, str, list[str]]:
     cwd = title = branch = ""
+    prompts: list[str] = []
     for line in _read_chunks(p):
         if not line.startswith("{"):
             continue
@@ -58,7 +83,13 @@ def _session_info(p: Path) -> tuple[str, str, str]:
         cwd = cwd or row.get("cwd") or ""
         branch = row.get("gitBranch") or branch
         title = row.get("customTitle") or row.get("aiTitle") or title
-    return cwd, title, branch
+        if row.get("type") == "user" and (row.get("origin") or {}).get("kind", "human") == "human":
+            content = (row.get("message") or {}).get("content")
+            if isinstance(content, str):
+                cleaned = _clean_request(content)
+                if cleaned and (not prompts or prompts[-1] != cleaned):
+                    prompts.append(cleaned)
+    return cwd, title, branch, prompts
 
 
 def _project_root(cwd: Path) -> Path:
@@ -142,3 +173,41 @@ def project_statuses(vault_root: Path, claude_dir: Path, projects_root: Path,
         if p.name in notes:
             p.state, p.note = notes[p.name]
     return projects
+
+
+@dataclass
+class ProjectDetail:
+    name: str
+    sessions: list[tuple[str, int]]   # (title, days ago), newest first
+    requests: list[str]               # what the user last asked for there, newest first
+
+
+def project_detail(claude_dir: Path, projects_root: Path, name: str, now: datetime,
+                   max_sessions: int = 3, max_requests: int = 5) -> ProjectDetail | None:
+    """Recent sessions and requests for one project, from the local session logs."""
+    claude_dir, projects_root = Path(claude_dir), Path(projects_root).resolve()
+    found: list[tuple[float, str, list[str]]] = []
+    if not claude_dir.is_dir():
+        return None
+    for log in claude_dir.glob("*/*.jsonl"):
+        try:
+            mtime = log.stat().st_mtime
+            cwd, title, _branch, prompts = _parse_session(log)
+        except OSError:
+            continue
+        if not cwd:
+            continue
+        folder = _project_root(Path(cwd)).resolve()
+        if projects_root in folder.parents and folder.relative_to(projects_root).as_posix() == name:
+            found.append((mtime, title, prompts))
+    if not found:
+        return None
+    found.sort(key=lambda f: f[0], reverse=True)
+    sessions = [(title or "untitled session", max(0, (now - datetime.fromtimestamp(m)).days))
+                for m, title, _ in found[:max_sessions]]
+    requests: list[str] = []
+    for _, _, prompts in found:
+        for r in reversed(prompts):
+            if len(requests) < max_requests and (not requests or requests[-1] != r):
+                requests.append(r)
+    return ProjectDetail(name, sessions, requests)

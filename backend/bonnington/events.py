@@ -57,6 +57,14 @@ class ClearSubtitlesEvent(_Event):
 
 
 @dataclass(frozen=True)
+class MemoryEvent(_Event):
+    """He changed something in the vault; the UI shows a brief "memory updated" note."""
+
+    type: ClassVar[str] = "memory"
+    text: str
+
+
+@dataclass(frozen=True)
 class AmplitudeEvent(_Event):
     type: ClassVar[str] = "amplitude"
     value: float
@@ -66,4 +74,4 @@ class AmplitudeEvent(_Event):
 
 
 UIEvent = (StateEvent | MoodEvent | UserPartialEvent | UserFinalEvent | SubtitleLineEvent
-           | ClearSubtitlesEvent | AmplitudeEvent)
+           | ClearSubtitlesEvent | AmplitudeEvent | MemoryEvent)

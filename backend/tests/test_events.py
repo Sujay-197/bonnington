@@ -20,3 +20,8 @@ def test_type_names():
     assert json.loads(UserPartialEvent("hey").to_json())["type"] == "user_partial"
     assert json.loads(UserFinalEvent("hey").to_json())["type"] == "user_final"
     assert json.loads(ClearSubtitlesEvent().to_json()) == {"type": "clear_subtitles"}
+
+
+def test_memory_event():
+    from bonnington.events import MemoryEvent
+    assert json.loads(MemoryEvent("Saved task: X.").to_json()) == {"type": "memory", "text": "Saved task: X."}

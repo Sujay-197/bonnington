@@ -28,7 +28,7 @@ async def _amain(state: dict) -> None:
     from .brain.llm import Brain
     from .bridge import UIBridge
     from .config import load_settings, save_settings
-    from .events import AmplitudeEvent
+    from .events import AmplitudeEvent, MemoryEvent
     from .hotkey import HotkeyListener
     from .lifecycle import LifecycleController
     from .orchestrator import Deps, Orchestrator
@@ -43,6 +43,9 @@ async def _amain(state: dict) -> None:
     settings = load_settings(ROOT / "data" / "settings.json")
     bridge = UIBridge(settings.ws_port)
     player = AudioPlayer(lambda v: bridge.broadcast(AmplitudeEvent(v)))
+
+    tracker = build_tracker(settings, ROOT.parent)
+    tracker.on_change = lambda text: bridge.broadcast(MemoryEvent(text))
 
     async def play_file(path: str) -> None:
         import soundfile as sf
@@ -67,7 +70,7 @@ async def _amain(state: dict) -> None:
     else:
         mic = MicSource(device=settings.mic_device)
     deps = Deps(source=mic, wake=SttWake(settings.wake_phrases, settings, min_similarity=settings.wake_similarity),
-                turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model, tracker=build_tracker(settings, ROOT.parent)),
+                turn=TurnDetector(silence_ms=settings.turn_silence_ms), stt=build_stt(settings), brain=Brain(settings.llm_model, tracker=tracker),
                 tts=TTSEngine(settings), player=player, bridge=bridge,
                 store=GrudgeStore(ROOT / "data" / "bonnington.db"), settings=settings,
                 play_file=play_file)

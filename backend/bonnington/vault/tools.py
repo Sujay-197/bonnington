@@ -11,6 +11,8 @@ from .projects import ProjectStatus, set_project_status
 from .store import Ambiguous, NotFound, Vault, _num
 
 KINDS = ("exam", "assignment", "task", "score")
+_CHANGES = {"add_exam", "add_assignment", "add_task", "add_score", "mark_done", "remove_item", "undo_last",
+            "set_project_status"}
 PROJECT_STATES = ("on hold", "done", "active")
 
 
@@ -47,6 +49,8 @@ _SPECS = [
     _fn("subject_summary", "Upcoming items, scores and average for one subject.",
         {"subject": "subject name"}, ["subject"]),
     _fn("project_status", "The state of every coding project, from the user's local coding history.", {}, []),
+    _fn("project_detail", "What the user was last doing in one coding project: recent sessions and "
+        "the last things they asked for there.", {"project": "project name"}, ["project"]),
     _fn("set_project_status", "Record that the user put a project on hold, finished it, or resumed it.",
         {"project": "project name", "status": "on hold, done or active", "note": "optional reason"},
         ["project", "status"]),
@@ -87,10 +91,12 @@ def _project_line(p: ProjectStatus) -> str:
 
 class Tracker:
     def __init__(self, vault: Vault, projects: Callable[[], list[ProjectStatus]],
-                 now: Callable[[], datetime] = datetime.now) -> None:
+                 now: Callable[[], datetime] = datetime.now, detail: Callable[[str], Any] | None = None) -> None:
         self.vault = vault
         self._projects = projects
         self._now = now
+        self._detail = detail
+        self.on_change: Callable[[str], None] | None = None   # told about every successful change
 
     def tool_specs(self) -> list[dict]:
         return _SPECS
@@ -153,7 +159,10 @@ class Tracker:
             return f"ERROR: unknown tool {name}"
         args = {k: v for k, v in (args or {}).items() if v not in (None, "")}
         try:
-            return handler(args)
+            result = handler(args)
+            if name in _CHANGES and result != "Nothing to undo." and self.on_change is not None:
+                self.on_change(result)
+            return result
         except KeyError as e:
             return f"ERROR: missing {e.args[0]}; ask the user for it"
         except (ValueError, NotFound, Ambiguous) as e:
@@ -234,18 +243,36 @@ class Tracker:
         status = str(a["status"]).strip().lower()
         if status not in PROJECT_STATES:
             raise ValueError(f"status must be one of {', '.join(PROJECT_STATES)}")
-        wanted = str(a["project"]).strip().lower()
+        name = self._match_project(str(a["project"]))
+        set_project_status(self.vault.root, name, status, str(a.get("note", "")))
+        getattr(self, "invalidate_projects", lambda: None)()
+        return f"{name} is now marked {status}."
+
+    def _match_project(self, wanted_raw: str) -> str:
+        wanted = wanted_raw.strip().lower()
         names = [p.name for p in self._safe_projects()]
         hits = [n for n in names if n.lower() == wanted] or \
                [n for n in names if n.lower().split("/")[-1] == wanted] or \
                [n for n in names if wanted in n.lower()]
         if not hits:
-            raise NotFound(f"no project matching {a['project']!r}; known: {', '.join(names) or 'none'}")
+            raise NotFound(f"no project matching {wanted_raw!r}; known: {', '.join(names) or 'none'}")
         if len(hits) > 1:
-            raise Ambiguous(f"several projects match {a['project']!r}: {', '.join(hits)}")
-        set_project_status(self.vault.root, hits[0], status, str(a.get("note", "")))
-        getattr(self, "invalidate_projects", lambda: None)()
-        return f"{hits[0]} is now marked {status}."
+            raise Ambiguous(f"several projects match {wanted_raw!r}: {', '.join(hits)}")
+        return hits[0]
+
+    def _t_project_detail(self, a: dict) -> str:
+        name = self._match_project(str(a["project"]))
+        status = next(p for p in self._safe_projects() if p.name == name)
+        lines = [_project_line(status) + (f", branch {status.branch}" if status.branch else "")]
+        detail = self._detail(name) if self._detail is not None else None
+        if detail is not None:
+            def ago(n: int) -> str:
+                return "today" if n == 0 else "yesterday" if n == 1 else f"{n} days ago"
+            if detail.sessions:
+                lines.append("Recent sessions: " + "; ".join(f'"{t}" ({ago(n)})' for t, n in detail.sessions))
+            if detail.requests:
+                lines.append("Last things the user asked for there: " + "; ".join(f'"{r}"' for r in detail.requests))
+        return "\n".join(lines)
 
 
 def build_tracker(settings, default_projects_root, now: Callable[[], datetime] = datetime.now,
@@ -274,6 +301,8 @@ def build_tracker(settings, default_projects_root, now: Callable[[], datetime] =
                     p.state, p.note = notes[p.name]
         return cache["value"]
 
-    tracker = Tracker(vault, projects, now)
+    from .projects import project_detail
+    tracker = Tracker(vault, projects, now,
+                      detail=lambda name: project_detail(claude_dir, root, name, now()))
     tracker.invalidate_projects = lambda: cache.update(at=0.0)
     return tracker

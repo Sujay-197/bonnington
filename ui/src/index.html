@@ -13,6 +13,11 @@
   #user { position: absolute; left: 0; right: 0; bottom: 7%; text-align: center; padding: 0 12%;
           color: #5F5E5A; font-family: Georgia, "Times New Roman", serif; font-size: clamp(12px, 1vw, 20px);
           transition: opacity .3s; }
+  #memory { position: absolute; top: 34px; right: 22px; max-width: 46%; padding: 8px 14px; border: 1px solid #2c2c2a;
+            border-radius: 10px; background: rgba(12,12,12,.85); color: #b4b2a9; font: 12px/1.45 "Segoe UI", system-ui, sans-serif;
+            opacity: 0; transform: translateY(-6px); transition: opacity .35s, transform .35s; pointer-events: none; }
+  #memory.show { opacity: 1; transform: none; }
+  #memory b { display: block; color: #fac775; font-weight: 500; font-size: 11px; letter-spacing: .06em; margin-bottom: 2px; }
   #drag { position: absolute; top: 0; left: 0; right: 0; height: 28px; }
 </style>
 </head>
@@ -21,6 +26,7 @@
 <canvas id="globe"></canvas>
 <div id="subs"></div>
 <div id="user"></div>
+<div id="memory" role="status"><b>Memory updated</b><span id="memory-text"></span></div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -58,3 +58,21 @@ describe("your words vs his subtitles", () => {
     expect(s.userText).toBe("am I");
   });
 });
+
+import { memoryNote } from "../src/store.js";
+
+describe("memory updated note", () => {
+  test("a memory event is shown for a few seconds, then gone", () => {
+    const s = reduce(initialState(), { type: "memory", text: "Saved task: Call the bank, no due date." }, 1000);
+    expect(memoryNote(s, 1500)).toBe("Saved task: Call the bank, no due date.");
+    expect(memoryNote(s, 1000 + 6000)).toBe("");
+  });
+  test("no note before anything changed", () => {
+    expect(memoryNote(initialState(), 0)).toBe("");
+  });
+  test("a newer change replaces the older note", () => {
+    let s = reduce(initialState(), { type: "memory", text: "one" }, 1000);
+    s = reduce(s, { type: "memory", text: "two" }, 2000);
+    expect(memoryNote(s, 2500)).toBe("two");
+  });
+});

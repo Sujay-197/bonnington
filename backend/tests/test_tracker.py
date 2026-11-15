@@ -27,7 +27,8 @@ def test_tool_specs_are_valid_function_schemas(tracker):
     specs = tracker.tool_specs()
     names = [s["function"]["name"] for s in specs]
     assert names == ["add_exam", "add_assignment", "add_task", "add_score", "mark_done", "remove_item",
-                     "undo_last", "list_items", "subject_summary", "project_status", "set_project_status"]
+                     "undo_last", "list_items", "subject_summary", "project_status", "project_detail",
+                     "set_project_status"]
     for s in specs:
         assert s["type"] == "function" and s["function"]["description"]
         assert s["function"]["parameters"]["type"] == "object"
@@ -133,3 +134,34 @@ def test_snapshot_groups_week_overdue_later_and_projects(tracker):
 def test_snapshot_says_no_exams_this_week_explicitly(tracker):
     tracker.call("add_task", {"title": "Call the bank"})
     assert "Next 7 days: nothing dated. No exams this week." in tracker.snapshot()
+
+
+def test_project_detail_tool(tmp_path):
+    from bonnington.vault.projects import ProjectDetail
+    seen = []
+
+    def detail(name):
+        seen.append(name)
+        return ProjectDetail(name, [("Retrieval engine", 2), ("Initial setup", 9)],
+                             ["should we rly need containers>", "add the retrieval step"])
+    t = Tracker(Vault(tmp_path / "v"), projects=_projects, now=lambda: NOW, detail=detail)
+    out = t.call("project_detail", {"project": "campusai"})
+    assert seen == ["tensor/campusai"]
+    assert 'Recent sessions: "Retrieval engine" (2 days ago); "Initial setup" (9 days ago)' in out
+    assert 'Last things the user asked for there: "should we rly need containers>"; "add the retrieval step"' in out
+    assert t.call("project_detail", {"project": "nope"}).startswith("ERROR: no project")
+
+
+def test_changes_are_announced_but_reads_and_errors_are_not(tmp_path):
+    notes = []
+    t = Tracker(Vault(tmp_path / "v"), projects=_projects, now=lambda: NOW)
+    t.on_change = notes.append
+    t.call("add_task", {"title": "Call the bank"})
+    t.call("list_items", {"kind": "all"})
+    t.call("add_exam", {"subject": "DBMS", "date": "soonish"})
+    t.call("mark_done", {"kind": "task", "which": "bank"})
+    t.call("undo_last", {})
+    t.call("undo_last", {})                      # nothing left to undo
+    t.call("set_project_status", {"project": "medrag", "status": "on hold"})
+    assert notes == ["Saved task: Call the bank, no due date.", "Marked done: Call the bank.",
+                     "Undone: marked task done: Call the bank.", "medrag is now marked on hold."]

@@ -3,7 +3,7 @@ const MOODS = ["neutral", "amused", "annoyed", "smug", "serious", "disappointed"
 const PHASES = ["idle", "listening", "thinking", "speaking", "waking"];
 
 export function initialState() {
-  return { phase: "idle", mood: "neutral", userText: "", userTextAt: null, lines: [], amplitude: 0 };
+  return { phase: "idle", mood: "neutral", userText: "", userTextAt: null, lines: [], amplitude: 0, memory: null };
 }
 
 export function reduce(state, ev, now) {
@@ -23,6 +23,8 @@ export function reduce(state, ev, now) {
     }
     case "clear_subtitles":
       return { ...state, lines: [] };
+    case "memory":
+      return { ...state, memory: { text: String(ev.text || ""), at: now } };
     case "amplitude":
       return { ...state, amplitude: Number(ev.value) || 0 };
     default:
@@ -35,4 +37,12 @@ const FADE_MS = 600;
 // True while one of his subtitle lines is still being spoken or fading out.
 export function linesActive(state, now) {
   return state.lines.some(l => now < l.startedAt + l.durationMs + FADE_MS);
+}
+
+const MEMORY_NOTE_MS = 5000;
+
+// The "memory updated" note: what he just changed, shown briefly.
+export function memoryNote(state, now) {
+  const m = state.memory;
+  return m && now - m.at < MEMORY_NOTE_MS ? m.text : "";
 }

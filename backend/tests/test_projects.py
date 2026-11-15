@@ -104,3 +104,52 @@ def test_setting_status_active_clears_the_hold(tmp_path):
     set_project_status(vault, "medrag", "done")
     set_project_status(vault, "medrag", "active")
     assert project_statuses(vault, claude, root, ["clg"], NOW)[0].state == "active"
+
+
+def _session_with_prompts(claude_dir, folder, cwd, days_ago, prompts, title="T", name="s1"):
+    d = claude_dir / folder
+    d.mkdir(parents=True, exist_ok=True)
+    lines = [{"type": "user", "cwd": str(cwd), "gitBranch": "main", "origin": {"kind": "human"},
+              "timestamp": f"2026-11-{10 + i:02d}T10:00:00Z", "message": {"role": "user", "content": p}}
+             for i, p in enumerate(prompts)]
+    lines.append({"type": "user", "cwd": str(cwd), "message": {"role": "user", "content": [
+        {"type": "tool_result", "content": "tool output, not typed by the user"}]}})
+    lines.append({"type": "custom-title", "customTitle": title})
+    p = d / f"{name}.jsonl"
+    p.write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+    ts = (NOW - timedelta(days=days_ago)).timestamp()
+    os.utime(p, (ts, ts))
+
+
+def test_project_detail_lists_recent_sessions_and_requests(tmp_path):
+    from bonnington.vault.projects import project_detail
+    claude, root = _world(tmp_path)
+    _session_with_prompts(claude, "a", root / "medrag", 9, ["set up the repo"], title="Initial setup", name="old")
+    _session_with_prompts(claude, "a", root / "medrag", 2, ["add the retrieval step", "should we rly need containers>"],
+                          title="Retrieval engine", name="new")
+    d = project_detail(claude, root, "medrag", NOW)
+    assert d.sessions[0] == ("Retrieval engine", 2) and d.sessions[1] == ("Initial setup", 9)
+    assert d.requests[:2] == ["should we rly need containers>", "add the retrieval step"]
+    assert not any("tool output" in r for r in d.requests)
+
+
+def test_project_detail_hides_secrets_and_trims_long_requests(tmp_path):
+    from bonnington.vault.projects import project_detail
+    claude, root = _world(tmp_path)
+    _session_with_prompts(claude, "a", root / "medrag", 1, [
+        'claude mcp add x --header "X-Goog-Api-Key: AQ.Ab8RN6Kgv60jFAKEFAKEFAKE33haPVBGVgIYcTA" https://x/mcp',
+        "my password is hunter2 please log in",
+        "explain " + "very " * 80 + "long thing",
+        "<system-reminder>injected</system-reminder>",
+    ])
+    d = project_detail(claude, root, "medrag", NOW)
+    joined = " | ".join(d.requests)
+    assert "AQ.Ab8" not in joined and "hunter2" not in joined and "injected" not in joined
+    assert joined.count("hidden") == 1          # the two hidden requests are merged
+    assert all(len(r) <= 170 for r in d.requests)
+
+
+def test_project_detail_unknown_project(tmp_path):
+    from bonnington.vault.projects import project_detail
+    claude, root = _world(tmp_path)
+    assert project_detail(claude, root, "nope", NOW) is None
