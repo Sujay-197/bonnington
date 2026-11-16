@@ -1,0 +1,40 @@
+// Subtitle rendering: reveal words of each line in sync with the voice.
+export function visibleWords(line, nowMs) {
+  const words = line.text.split(/\s+/).filter(Boolean);
+  const offs = line.wordOffsetsMs || [];
+  if (offs.length === 0) return words.join(" ");
+  const elapsed = nowMs - line.startedAt;
+  let n = 0;
+  while (n < words.length && (n >= offs.length || offs[n] <= elapsed)) n++;
+  return words.slice(0, n).join(" ");
+}
+
+const FADE_MS = 600;
+
+// The app window blocks inline styles, so fading is done with a class.
+export function lineClass(line, nowMs) {
+  return nowMs - line.startedAt - line.durationMs > 0 ? "out" : "";
+}
+const USER_FADE_AFTER_MS = 1500;
+
+export function renderSubtitles(el, userEl, state, nowMs) {
+  const html = state.lines.map((line) =>
+    `<div class="${lineClass(line, nowMs)}">${escapeHtml(visibleWords(line, nowMs))}</div>`).join("");
+  if (el.innerHTML !== html) el.innerHTML = html;
+  let userOpacity = state.userText || statusText(state) ? 1 : 0;
+  if (state.userTextAt != null) userOpacity = Math.max(0, 1 - (nowMs - state.userTextAt - USER_FADE_AFTER_MS) / FADE_MS);
+  userEl.textContent = state.userText || statusText(state);
+  userEl.style.opacity = Math.min(1, userOpacity).toFixed(2);
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// A quiet cue so you can tell he's listening before you've said anything.
+export function statusText(state) {
+  if (state.userText) return "";
+  if (state.phase === "waking") return "waking up…";
+  if (state.phase === "listening") return "listening…";
+  return "";
+}
