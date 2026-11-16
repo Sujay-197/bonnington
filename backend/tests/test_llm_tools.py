@@ -301,5 +301,67 @@ async def test_a_false_claim_in_small_talk_is_redone_gently_and_cannot_add_thing
     assert "Nothing was changed" in redo["messages"][-1]["content"]
     assert "matching tool now" not in redo["messages"][-1]["content"]
     names = [t["function"]["name"] for t in redo["tools"]]
-    assert not any(n.startswith("add_") for n in names) and "mark_done" in names
+    assert not any(n.startswith("add_") for n in names) and "mark_done" not in names and "list_items" in names
     assert tracker.vault.tasks() == []
+
+
+# --- the save-claim guard stays on until something was really changed --------------------------
+
+async def test_claim_after_a_failed_tool_is_not_spoken(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_exam", "args": {"subject": "DBMS", "date": "soonish"}}],
+                         ["<mood:smug>I've noted your DBMS exam."],
+                         ["<mood:smug>I've noted your DBMS exam."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "add my DBMS exam soonish")
+    assert "noted" not in out and "did not manage to save" in out
+    assert tracker.vault.exams() == []
+    assert "Nothing was saved" in fake_ollama.calls[2]["messages"][-1]["content"]
+
+
+async def test_claim_after_a_read_only_tool_is_redone(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "list_items", "args": {"kind": "all"}}],
+                         ["<mood:smug>I've added the physics lab to your list."],
+                         [{"tool": "add_assignment", "args": {"subject": "Physics", "title": "Lab", "due": "friday"}}],
+                         ["<mood:smug>Physics lab, due Friday."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "physics lab due friday, add it")
+    assert out == "<mood:smug>Physics lab, due Friday."
+    assert [a.title for a in tracker.vault.assignments()] == ["Lab"]
+
+
+async def test_after_a_real_save_the_read_back_is_not_held(fake_ollama, tracker):
+    fake_ollama.turns = [[{"tool": "add_task", "args": {"title": "Call the bank"}}],
+                         ["<mood:neutral>Noted: call the bank."]]
+    out = await _say(Brain("m", client=fake_ollama, tracker=tracker), "remind me to call the bank")
+    assert out == "<mood:neutral>Noted: call the bank."
+    assert len(fake_ollama.calls) == 2
+
+
+# --- a redo never pushes the model into a change nobody asked for -----------------------------
+
+@pytest.mark.parametrize("text", ["did I mark the bank call done?", "what's wrong with you",
+                                  "is the DBMS exam removed?", "when is the lab due"])
+def test_questions_are_not_change_requests(text):
+    from bonnington.brain.llm import wants_change
+    assert wants_change(text) is False
+
+
+@pytest.mark.parametrize("text", ["can you mark the bank call done?", "could you remove the DBMS exam"])
+def test_polite_requests_are_still_change_requests(text):
+    from bonnington.brain.llm import wants_change
+    assert wants_change(text) is True
+
+
+async def test_a_question_with_a_false_claim_is_not_forced_into_a_change(fake_ollama, tracker):
+    tracker.call("add_task", {"title": "Call the bank"})
+    fake_ollama.turns = [["<mood:smug>Yes, I marked it done yesterday."], ["<mood:smug>It is still open."]]
+    await _say(Brain("m", client=fake_ollama, tracker=tracker), "did I mark the bank call done?")
+    redo = fake_ollama.calls[1]
+    assert "matching tool now" not in redo["messages"][-1]["content"]
+    assert not tracker.vault.tasks()[0].done
+
+
+async def test_the_gentle_redo_offers_no_tool_that_changes_anything(fake_ollama, tracker):
+    from bonnington.vault.tools import CHANGE_TOOLS
+    fake_ollama.turns = [["<mood:smug>I've struck that from the record."], ["<mood:smug>Hilarious."]]
+    await _say(Brain("m", client=fake_ollama, tracker=tracker), "you're hilarious")
+    names = {t["function"]["name"] for t in fake_ollama.calls[1]["tools"]}
+    assert names and not names & CHANGE_TOOLS

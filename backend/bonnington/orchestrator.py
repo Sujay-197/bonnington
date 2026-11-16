@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 
 State = Literal["idle", "listening", "thinking", "speaking", "followup"]
 OFFLINE_TEXT = "My brain is offline. Start Ollama."
+ERROR_TEXT = "Something went wrong on my end. Say that again."
+LOAD_FAILED_TEXT = "My ears or my voice failed to load. The log says why."
+FRAME_ERROR_LOG_S = 60.0  # the same frame error is logged at most once a minute
 HM_AFTER_S = 3.0
 PREROLL_FRAMES = 6  # 0.5 s kept from before speech is detected in a follow-up
 MAX_BUFFER_FRAMES = 25  # last 2 s of audio kept while models load (replay blocks the loop ~0.5 s)
@@ -99,6 +102,7 @@ class Orchestrator:
         self._parser = MoodParser("neutral")
         self._line_id = 0
         self._leaving = False
+        self._frame_error: tuple[str, float] | None = None
 
     # --- public ---------------------------------------------------------------
     @property
@@ -115,7 +119,10 @@ class Orchestrator:
     async def run(self) -> None:
         try:
             async for frame in self.d.source.frames():
-                self._on_frame(frame)
+                try:
+                    self._on_frame(frame)
+                except Exception as e:  # one bad frame must never end the conversation loop
+                    self._frame_failed(e)
         finally:
             for t in (self._reply_task, self._load_task):
                 if t is not None and not t.done():
@@ -145,6 +152,16 @@ class Orchestrator:
             self.on_models_changed()
 
     # --- frame handling ---------------------------------------------------------
+    def _frame_failed(self, e: Exception) -> None:
+        key, now = repr(e), self._clock()
+        if self._frame_error is None or self._frame_error[0] != key or now - self._frame_error[1] >= FRAME_ERROR_LOG_S:
+            log.exception("error while handling audio; back to idle")
+            self._frame_error = (key, now)
+        if self.state != "idle":
+            if self.state in ("thinking", "speaking"):
+                self._interrupt()
+            self._end_session()
+
     def _on_frame(self, frame) -> None:
         s = self.d.settings
         if self._pending is not None:
@@ -272,6 +289,10 @@ class Orchestrator:
             self.loading = False
             if self.on_models_changed:
                 self.on_models_changed()
+        if self.state == "listening" and not self.models_loaded():
+            self._show_problem(LOAD_FAILED_TEXT)   # the reason is in the log (above)
+            self._end_session()
+            return
         if self.state == "listening":
             d.stt.start_turn()
             self._emit_phase()
@@ -324,15 +345,26 @@ class Orchestrator:
             self._set_state("followup")
         except BrainUnavailable as e:
             log.warning("brain unavailable: %s", e)
-            d.bridge.broadcast(MoodEvent("serious"))
-            self._line_id += 1
-            d.bridge.broadcast(SubtitleLineEvent(self._line_id, OFFLINE_TEXT, 4000,
-                                                 estimate_word_offsets(OFFLINE_TEXT, 1500)))
-            await self._sleep(4.0)
-            d.bridge.broadcast(ClearSubtitlesEvent())
-            self._end_session()
+            await self._fail_turn(OFFLINE_TEXT)
+        except Exception:  # anything else must end the turn too, never leave him stuck "thinking"
+            log.exception("reply failed")
+            if hasattr(d.tts, "cancel"):
+                d.tts.cancel()
+            d.player.stop()
+            await self._fail_turn(ERROR_TEXT)
         finally:
             producer.cancel()
+
+    def _show_problem(self, text: str) -> None:
+        self.d.bridge.broadcast(MoodEvent("serious"))
+        self._line_id += 1
+        self.d.bridge.broadcast(SubtitleLineEvent(self._line_id, text, 4000, estimate_word_offsets(text, 1500)))
+
+    async def _fail_turn(self, text: str) -> None:
+        self._show_problem(text)
+        await self._sleep(4.0)
+        self.d.bridge.broadcast(ClearSubtitlesEvent())
+        self._end_session()
 
     async def _produce(self, msg: str, queue: asyncio.Queue) -> None:
         d = self.d

@@ -67,3 +67,14 @@ async def test_context_window_capped(fake_ollama):
     await b.warm()
     [c async for c in b.stream_reply("hey")]
     assert all(c["options"]["num_ctx"] == 4096 and c["options"]["num_predict"] == 400 for c in fake_ollama.calls)
+
+
+async def test_an_ollama_error_in_the_middle_of_the_stream_raises_brain_unavailable():
+    class Client:
+        async def chat(self, **kw):
+            async def gen():
+                yield {"message": {"content": "<mood:neutral>Well. "}}
+                raise ollama.ResponseError("model runner has unexpectedly stopped")
+            return gen()
+    with pytest.raises(BrainUnavailable):
+        [c async for c in Brain("m", client=Client()).stream_reply("hey")]

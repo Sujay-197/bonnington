@@ -43,3 +43,24 @@ async def test_many_events_arrive_in_order(unused_tcp_port):
         got = [json.loads(await ws.recv())["value"] for _ in range(200)]
     assert got == [round(i / 1000, 3) for i in range(200)]
     await b.stop()
+
+
+async def test_a_web_page_cannot_connect(unused_tcp_port):
+    import pytest
+    from websockets.exceptions import InvalidStatus
+    b = UIBridge(unused_tcp_port)
+    await b.start()
+    b.broadcast(StateEvent("thinking"))
+    with pytest.raises(InvalidStatus):
+        async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}", origin="https://evil.example"):
+            pass
+    await b.stop()
+
+
+async def test_the_app_window_can_connect(unused_tcp_port):
+    b = UIBridge(unused_tcp_port)
+    await b.start()
+    b.broadcast(StateEvent("thinking"))
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}", origin="http://tauri.localhost") as ws:
+        assert json.loads(await ws.recv())["type"] == "state"
+    await b.stop()

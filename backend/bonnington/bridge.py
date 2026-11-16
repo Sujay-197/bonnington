@@ -13,6 +13,10 @@ log = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 SNAPSHOT_TYPES = ("state", "mood", "dashboard", "focus")  # replayed to a window that connects later
+# Browsers let any web page open ws://127.0.0.1, so only the app's own window may connect. It sends one of
+# these origins (Tauri 2: http(s)://tauri.localhost on Windows, tauri://localhost elsewhere). No Origin at
+# all means a local non-browser client (tests, scripts), which could read the user's files anyway.
+ALLOWED_ORIGINS = ("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost", None)
 
 
 class UIBridge:
@@ -26,7 +30,7 @@ class UIBridge:
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
-        self.server = await serve(self._handle, HOST, self.port)
+        self.server = await serve(self._handle, HOST, self.port, origins=list(ALLOWED_ORIGINS))
 
     async def stop(self) -> None:
         if self.server is not None:

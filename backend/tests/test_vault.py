@@ -126,3 +126,58 @@ def test_gist_file_removed_when_subject_has_nothing_left(vault):
     vault.add_exam("DBMS", date(2026, 11, 24))
     vault.remove("exam", "dbms")
     assert not (vault.root / "Academic" / "Subjects" / "DBMS.md").exists()
+
+
+# --- undo never loses what the user wrote by hand ---------------------------------------------
+
+def _tasks_file(vault):
+    return vault.root / "Personal" / "Tasks.md"
+
+
+def test_undo_of_the_first_add_keeps_lines_written_by_hand_since(vault):
+    vault.add_task("Call the bank")                    # creates Tasks.md
+    p = _tasks_file(vault)
+    p.write_text(p.read_text(encoding="utf-8") + "- [ ] Hand-written task\nmy own notes\n", encoding="utf-8")
+    assert "Call the bank" in vault.undo()
+    text = p.read_text(encoding="utf-8")
+    assert "Hand-written task" in text and "my own notes" in text and "Call the bank" not in text
+
+
+def test_undo_after_a_hand_edit_takes_back_only_his_line(vault):
+    vault.add_task("Old")
+    vault.add_task("Oops")
+    p = _tasks_file(vault)
+    p.write_text(p.read_text(encoding="utf-8") + "- [ ] Typed in Obsidian\n", encoding="utf-8")
+    vault.undo()
+    assert [t.title for t in vault.tasks()] == ["Old", "Typed in Obsidian"]
+
+
+def test_undo_of_mark_done_after_a_hand_edit(vault):
+    vault.add_task("Renew passport")
+    vault.mark_done("task", "passport")
+    p = _tasks_file(vault)
+    p.write_text("# My own heading\n" + p.read_text(encoding="utf-8"), encoding="utf-8")
+    vault.undo()
+    assert not vault.tasks()[0].done
+    assert p.read_text(encoding="utf-8").startswith("# My own heading\n")
+
+
+def test_undo_of_remove_after_a_hand_edit_puts_the_line_back(vault):
+    vault.add_task("Keep")
+    vault.add_task("Gone")
+    vault.remove("task", "gone")
+    p = _tasks_file(vault)
+    p.write_text(p.read_text(encoding="utf-8") + "- [ ] New by hand\n", encoding="utf-8")
+    vault.undo()
+    assert sorted(t.title for t in vault.tasks()) == ["Gone", "Keep", "New by hand"]
+
+
+def test_undo_refuses_when_his_line_was_already_changed_by_hand(vault):
+    from bonnington.vault.store import UndoConflict
+    vault.add_task("Call the bank")
+    p = _tasks_file(vault)
+    edited = p.read_text(encoding="utf-8").replace("Call the bank", "Call the bank at 9")
+    p.write_text(edited, encoding="utf-8")
+    with pytest.raises(UndoConflict):
+        vault.undo()
+    assert p.read_text(encoding="utf-8") == edited     # nothing touched

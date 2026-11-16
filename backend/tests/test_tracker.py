@@ -165,3 +165,18 @@ def test_changes_are_announced_but_reads_and_errors_are_not(tmp_path):
     t.call("set_project_status", {"project": "medrag", "status": "on hold"})
     assert notes == ["Saved task: Call the bank, no due date.", "Marked done: Call the bank.",
                      "Undone: marked task done: Call the bank.", "medrag is now marked on hold."]
+
+
+def test_a_vault_write_error_goes_back_to_the_model_as_an_error(tracker, monkeypatch):
+    def locked(*a, **k):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(tracker.vault, "add_task", locked)
+    result = tracker.call("add_task", {"title": "Call the bank"})
+    assert result.startswith("ERROR") and "could not write" in result
+
+
+def test_an_undo_conflict_goes_back_to_the_model_as_an_error(tracker):
+    tracker.call("add_task", {"title": "Call the bank"})
+    p = tracker.vault.root / "Personal" / "Tasks.md"
+    p.write_text(p.read_text(encoding="utf-8").replace("Call the bank", "Call mum"), encoding="utf-8")
+    assert tracker.call("undo_last", {}).startswith("ERROR")

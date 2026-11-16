@@ -22,6 +22,24 @@ class Ambiguous(Exception):
     pass
 
 
+class UndoConflict(ValueError):
+    """The line to take back was changed by hand since; nothing was undone."""
+
+
+@dataclass
+class _Change:
+    """The last change, kept so it can be taken back without touching anything written since."""
+
+    description: str
+    path: Path
+    before: str | None    # the whole file before the change (None: it did not exist)
+    after: str            # the whole file as Bonnington left it
+    op: str               # "add" | "replace" | "remove"
+    old: str = ""         # the line before the change (replace, remove)
+    new: str = ""         # the line after the change (add, replace)
+    index: int = 0        # where the removed line was
+
+
 def _num(x: float) -> str:
     return f"{x:g}"
 
@@ -165,7 +183,7 @@ _KINDS = {
 class Vault:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self._undo: tuple[str, dict[Path, str | None]] | None = None
+        self._undo: _Change | None = None
 
     # --- reading ------------------------------------------------------------------
     def _path(self, kind: str) -> Path:
@@ -202,22 +220,23 @@ class Vault:
         return next((s for s in self.subjects() if s.lower() == name.lower()), name)
 
     # --- writing ------------------------------------------------------------------
-    def _begin(self, description: str, kinds: list[str]) -> None:
-        snap = {}
-        for k in kinds:
-            p = self._path(k)
-            snap[p] = p.read_text(encoding="utf-8") if p.exists() else None
-        self._undo = (description, snap)
-
-    def _write(self, kind: str, lines: list[str]) -> None:
-        p = self._path(kind)
+    @staticmethod
+    def _write_lines(p: Path, lines: list[str]) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
 
-    def _append(self, item) -> None:
-        self._begin(f"added {item.kind}: {item.describe()}", [item.kind])
-        self._write(item.kind, self._lines(item.kind) + [item.line()])
+    def _change(self, kind: str, description: str, lines: list[str], op: str,
+                old: str = "", new: str = "", index: int = 0) -> None:
+        p = self._path(kind)
+        before = p.read_text(encoding="utf-8") if p.exists() else None
+        self._write_lines(p, lines)
+        self._undo = _Change(description, p, before, p.read_text(encoding="utf-8"), op, old, new, index)
         self.regenerate()
+
+    def _append(self, item) -> None:
+        line = item.line()
+        self._change(item.kind, f"added {item.kind}: {item.describe()}", self._lines(item.kind) + [line],
+                     "add", new=line)
 
     def add_exam(self, subject: str, on: date, at: time | None = None, title: str = "Exam", note: str = "") -> Exam:
         exam = Exam(self._subject(subject), on, at, (title or "Exam").strip(), (note or "").strip())
@@ -256,36 +275,54 @@ class Vault:
 
     def mark_done(self, kind: str, query: str):
         i, item = self._find(kind, query, include_done=False)
-        self._begin(f"marked {kind} done: {item.describe()}", [kind])
-        item.done = True
         lines = self._lines(kind)
+        old = lines[i]
+        item.done = True
         lines[i] = item.line()
-        self._write(kind, lines)
-        self.regenerate()
+        self._change(kind, f"marked {kind} done: {item.describe()}", lines, "replace", old=old, new=lines[i])
         return item
 
     def remove(self, kind: str, query: str):
         i, item = self._find(kind, query, include_done=True)
-        self._begin(f"removed {kind}: {item.describe()}", [kind])
         lines = self._lines(kind)
-        del lines[i]
-        self._write(kind, lines)
-        self.regenerate()
+        old = lines.pop(i)
+        self._change(kind, f"removed {kind}: {item.describe()}", lines, "remove", old=old, index=i)
         return item
 
     def undo(self) -> str | None:
-        """Take back the last change. Returns what was undone, or None if there is nothing to undo."""
-        if self._undo is None:
+        """Take back the last change. Returns what was undone, or None if there is nothing to undo.
+
+        If the file is exactly as Bonnington left it, the old file comes back. If it was edited by hand
+        since, only his one line is taken back and the user's edits stay. If his line itself was changed
+        by hand, nothing is touched and UndoConflict is raised.
+        """
+        c = self._undo
+        if c is None:
             return None
-        description, snap = self._undo
-        self._undo = None
-        for p, text in snap.items():
-            if text is None:
-                p.unlink(missing_ok=True)
+        current = c.path.read_text(encoding="utf-8") if c.path.exists() else None
+        if current == c.after:
+            if c.before is None:
+                c.path.unlink()
             else:
-                p.write_text(text, encoding="utf-8")
+                c.path.write_text(c.before, encoding="utf-8")
+        else:
+            if current is None:
+                raise UndoConflict(f"{c.path.name} was deleted since; nothing was undone")
+            lines = current.splitlines()
+            if c.op == "remove":
+                lines.insert(min(c.index, len(lines)), c.old)
+            else:
+                hits = [i for i, line in enumerate(lines) if line.strip() == c.new.strip()]
+                if not hits:
+                    raise UndoConflict(f"that line in {c.path.name} was edited by hand since; nothing was undone")
+                if c.op == "add":
+                    del lines[hits[-1]]
+                else:
+                    lines[hits[0]] = c.old
+            self._write_lines(c.path, lines)
+        self._undo = None
         self.regenerate()
-        return description
+        return c.description
 
     # --- generated files -------------------------------------------------------------
     def dated(self) -> list[tuple[date, time | None, str, str]]:

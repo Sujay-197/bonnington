@@ -132,6 +132,22 @@ async def _amain(state: dict) -> None:
         await bridge.stop()
 
 
+def _run_backend(state: dict, amain=None) -> None:
+    """The backend thread. A failure is logged (pythonw has no console), never leaves the tray waiting
+    for a backend that will not come, and stops the tray if the backend dies later."""
+    try:
+        asyncio.run((amain or _amain)(state))
+    except BaseException as e:
+        logging.getLogger("bonnington").exception("backend stopped")
+        state["error"] = e
+    finally:
+        started = state["ready"].is_set()
+        state["ready"].set()
+        stop_tray = state.get("stop_tray")
+        if started and stop_tray is not None:
+            stop_tray()     # quit rather than leave a tray icon with nothing behind it
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="bonnington")
     ap.add_argument("--register-startup", action="store_true")
@@ -145,9 +161,13 @@ def main() -> None:
     logging.basicConfig(filename=ROOT / "data" / "bonnington.log", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     state: dict = {"ready": threading.Event()}
-    worker = threading.Thread(target=lambda: asyncio.run(_amain(state)), daemon=True)
+    worker = threading.Thread(target=_run_backend, args=(state,), daemon=True)
     worker.start()
     state["ready"].wait()
+    if "controller" not in state:   # failed during startup; the reason is in data/bonnington.log
+        print(f"Bonnington failed to start: {state.get('error')!r}. See {ROOT / 'data' / 'bonnington.log'}",
+              file=sys.stderr)
+        sys.exit(1)
 
     from .tray import Tray
     controller, settings = state["controller"], state["settings"]
@@ -158,6 +178,9 @@ def main() -> None:
                 set_always_listening=state["set_always_listening"], on_quit=lambda: None,
                 phone_url=state.get("phone_url"), on_show=state["show_window"])
     controller.on_level_change = lambda lvl: tray.set_level(lvl.value)
+    state["stop_tray"] = tray.icon.stop
+    if not worker.is_alive():       # it died between startup and now
+        return
     try:
         tray.run()  # returns on Quit; the daemon worker dies with the process
     finally:

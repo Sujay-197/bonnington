@@ -264,3 +264,42 @@ async def test_models_changed_hook_fires_on_load_and_unload(rig):
     await rig.run_until_idle()
     await rig.orch.go_dormant()
     assert seen == [True, False]
+
+
+# --- errors end the turn instead of leaving him stuck ------------------------------------------
+
+async def test_an_unexpected_brain_error_ends_the_session_with_a_line(rig):
+    rig.brain_raises(RuntimeError("model runner has unexpectedly stopped"))
+    rig.wake_on_frame(0, "britney")
+    rig.speech(frames=range(2, 6))
+    rig.stt_final("hi")
+    await rig.run_until_idle()
+    from bonnington.orchestrator import ERROR_TEXT
+    assert ERROR_TEXT in rig.subtitles()
+    assert rig.orch.state == "idle" and not rig.orch.active
+
+
+async def test_a_failed_speech_model_load_ends_the_session_and_keeps_running(rig):
+    def broken():
+        raise FileNotFoundError("no encoder model")
+    rig.stt.load = broken
+    rig.wake_on_frame(0, "britney")
+    await rig.run_until_idle()
+    from bonnington.orchestrator import LOAD_FAILED_TEXT
+    assert LOAD_FAILED_TEXT in rig.subtitles()
+    assert rig.orch.state == "idle" and rig.brain_calls == 0
+
+
+async def test_an_error_while_handling_a_frame_does_not_stop_the_loop(rig):
+    feed = rig.wake.feed
+
+    def flaky(frame):
+        if rig.frames == 0:
+            raise RuntimeError("wake model hiccup")
+        return feed(frame)
+    rig.wake.feed = flaky
+    rig.wake_on_frame(3, "britney")
+    rig.speech(frames=range(5, 9))
+    rig.stt_final("hi")
+    await rig.run_until_idle()
+    assert rig.brain_calls == 1

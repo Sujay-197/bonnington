@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -10,9 +11,11 @@ from .dates import MONTHS, WEEKDAYS, resolve_date, resolve_time, spoken_date
 from .projects import ProjectStatus, set_project_status
 from .store import Ambiguous, NotFound, Vault, _num
 
+log = logging.getLogger(__name__)
+
 KINDS = ("exam", "assignment", "task", "score")
-_CHANGES = {"add_exam", "add_assignment", "add_task", "add_score", "mark_done", "remove_item", "undo_last",
-            "set_project_status"}
+CHANGE_TOOLS = frozenset({"add_exam", "add_assignment", "add_task", "add_score", "mark_done", "remove_item",
+                          "undo_last", "set_project_status"})
 PROJECT_STATES = ("on hold", "done", "active")
 
 
@@ -165,12 +168,22 @@ class Tracker:
             result = f"ERROR: missing {e.args[0]}; ask the user for it"
         except (ValueError, NotFound, Ambiguous) as e:
             result = f"ERROR: {e}"
-        if not result.startswith("ERROR"):
-            if name in _CHANGES and result != "Nothing to undo." and self.on_change is not None:
-                self.on_change(result)
+        except OSError as e:   # e.g. the file is locked by another program
+            log.warning("tool %s could not write the vault: %r", name, e)
+            result = f"ERROR: could not write the vault ({e.strerror or e}); nothing was saved, tell the user"
+        except Exception:      # a bug in a tool must reach the model as a failure, not stall the turn
+            log.exception("tool %s failed", name)
+            result = "ERROR: the tool failed; nothing was saved, tell the user"
+        if self.made_change(name, result) and self.on_change is not None:
+            self.on_change(result)
         if self.on_tool is not None:
             self.on_tool(name, args, result)
         return result
+
+    @staticmethod
+    def made_change(name: str, result: str) -> bool:
+        """True when this tool call really changed something."""
+        return name in CHANGE_TOOLS and not result.startswith("ERROR") and result != "Nothing to undo."
 
     def _today(self) -> date:
         return self._now().date()

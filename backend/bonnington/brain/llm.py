@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import ollama
 
+from ..vault.tools import CHANGE_TOOLS
 from .mood import MoodParser
 from .persona import build_system_prompt
 
@@ -62,6 +63,12 @@ class Brain:
             text += "\n\n" + self.tracker.snapshot()
         return {"role": "system", "content": text}
 
+    def _made_change(self, name: str, result: str) -> bool:
+        check = getattr(self.tracker, "made_change", None)
+        if check is not None:
+            return bool(check(name, result))
+        return name in CHANGE_TOOLS and not result.startswith("ERROR")
+
     def _messages(self) -> list[dict[str, str]]:
         return [self._system(), *self.history]
 
@@ -85,6 +92,7 @@ class Brain:
         extra: list[dict[str, Any]] = []   # this turn's tool calls and results
         said: list[str] = []
         tools_ran = retried = empty_retried = False
+        changed = False      # a tool call this turn really changed something; until then every claim is held
         hinted = self.tracker is not None and looks_like_a_report(user_text)
         change = wants_change(user_text)
         last_result = ""
@@ -96,20 +104,21 @@ class Brain:
                                {"role": "user", "content": user_text + (_FORCE if change else _GENTLE)}]
                 elif hinted and not tools_ran:
                     history = [*self.history[:-1], {"role": "user", "content": user_text + _HINT}]
-                kw: dict[str, Any] = dict(messages=[self._system(), *history, *extra], stream=True,
+                nudge = [{"role": "user", "content": _NOT_SAVED}] if retried and tools_ran else []
+                kw: dict[str, Any] = dict(messages=[self._system(), *history, *extra, *nudge], stream=True,
                                           think=False, keep_alive=KEEP_ALIVE)
                 if self.tracker is not None and round_no < MAX_TOOL_ROUNDS:
                     kw["tools"] = self.tracker.tool_specs()
-                    if retried and not tools_ran and not change:
-                        # Small talk that produced a false "I've noted it": the redo may fix or look up
-                        # things, but must not invent new entries.
-                        kw["tools"] = [t for t in kw["tools"] if not t["function"]["name"].startswith("add_")]
+                    if retried and not change:
+                        # Small talk (or a question) that produced a false "I've noted it": the redo may
+                        # look things up, but must not change anything nobody asked to change.
+                        kw["tools"] = [t for t in kw["tools"] if t["function"]["name"] not in CHANGE_TOOLS]
                 stream = await self._call(**kw)
                 # After he has already spoken this turn, a new round's leading mood tag must not be read aloud.
                 strip = MoodParser("neutral") if said else None
                 # Guard: until a tool has run this turn, release his words a sentence at a time and hold
                 # back everything from the first sentence that claims a save.
-                guard = self.tracker is not None and not tools_ran
+                guard = self.tracker is not None and not changed
                 pending = ""              # text not yet split into complete sentences
                 held: list[str] = []      # from the first claiming sentence onwards
                 round_text: list[str] = []
@@ -159,7 +168,7 @@ class Brain:
                     log.warning("empty reply; asking again")
                     empty_retried = True
                     continue
-                silent_redo = retried and not tools_ran and not calls and not round_started
+                silent_redo = retried and not changed and not calls and not round_started
                 if (held or silent_redo) and not calls:
                     log.warning("claimed a save without a tool call: %s", "".join(held)[:120])
                     if retried:            # still no tool call: say so, never let the claim stand
@@ -181,6 +190,7 @@ class Brain:
                     log.info("tool %s(%s) -> %s", name, args, result)
                     extra.append({"role": "tool", "tool_name": name, "content": result})
                     last_result = result
+                    changed = changed or self._made_change(name, result)
                 tools_ran = True
             if tools_ran and not said and last_result and not last_result.startswith("ERROR"):
                 line = "<mood:neutral>" + last_result.splitlines()[0]   # he saved but said nothing: read it back plainly
@@ -188,6 +198,8 @@ class Brain:
                 yield line
         except (httpx.HTTPError, ConnectionError) as e:
             raise BrainUnavailable(f"Ollama stream failed: {e}") from e
+        except ollama.ResponseError as e:   # raised mid-stream, e.g. "model runner has unexpectedly stopped"
+            raise BrainUnavailable(f"Ollama error for {self.model}: {e}") from e
         finally:
             # Tool calls and results stay in his memory: otherwise past turns look as if things
             # were saved just by saying so, and he imitates that.
@@ -243,14 +255,25 @@ _CLAIM = re.compile(
     r"|\b(?:is|are)\s+(?:now\s+|duly\s+|firmly\s+|officially\s+){0,2}" + _PASSIVE + r"\b"   # is now noted
     r"|(?<!not )\b(?:has|have) been\s+(?:\w+ly\s+)?" + _PASSIVE + r"\b",                   # has been recorded
     re.IGNORECASE)
-_GENTLE = ("\n[Nothing was changed: no tool was called. If the user asked for a change, call the tool; "
-           "if not, simply answer, without saying anything was saved, added, marked or removed.]")
+_GENTLE = ("\n[Nothing was changed: no tool was called. Simply answer, without saying anything was saved, "
+           "added, marked or removed.]")
+_NOT_SAVED = ("[Nothing was saved this turn: the tool reported an error or only looked things up. "
+              "Do not say anything was saved. If something was asked to be recorded, call the right tool with "
+              "what is missing filled in, or ask the user for it.]")
+_ASKING = re.compile(r"^\s*(what|what's|whats|when|when's|which|who|how|where|why|do|does|did|is|are|am|was|were|"
+                     r"have i|has|tell me|show me|list|explain)\b", re.IGNORECASE)
 _CHANGE = re.compile(r"\b(remove|delete|undo|cancel|scrap|drop|mark|tick|cross off|done|finished|completed|"
                      r"submitted|on hold|resume|wrong|not a task|change|move|postpone|reschedule)\b", re.IGNORECASE)
 
 
 def wants_change(text: str) -> bool:
-    """True when the user's words ask for something to be recorded or changed."""
+    """True when the user's words ask for something to be recorded or changed.
+
+    A question about what is recorded ("did I mark it done?") is not a request; a polite request
+    ("can you mark it done?") is.
+    """
+    if _ASKING.search(text):
+        return False
     return looks_like_a_report(text) or bool(_CHANGE.search(text))
 
 
