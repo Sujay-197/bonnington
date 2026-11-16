@@ -42,3 +42,12 @@ def test_old_long_token_is_replaced_by_a_code(tmp_path):
     s = load_settings(p)
     s.phone_token = "Zx9-long-old-token_abc"
     assert ensure_phone_token(s, p).isdigit()
+
+
+def test_ensure_phone_session_generates_a_long_secret_once_and_saves(tmp_path):
+    from bonnington.config import ensure_phone_session
+    p = tmp_path / "settings.json"
+    s = load_settings(p)
+    secret = ensure_phone_session(s, p)
+    assert len(secret) >= 32 and load_settings(p).phone_session == secret
+    assert ensure_phone_session(load_settings(p), p) == secret

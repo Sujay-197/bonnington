@@ -132,8 +132,8 @@ def _focus(tracker: Tracker, projects: list, wanted: str | None) -> dict[str, An
         except Exception:  # an unreadable log must not blank the dashboard
             detail = None
     if detail is not None:
+        # Session titles only: what the user typed stays off the always-open window, even when filtered.
         rows += [[title, _ago(days)] for title, days in detail.sessions[:2]]
-        rows += [[f'"{r}"', ""] for r in detail.requests[:1]]
     elif chosen.title:
         rows.append([chosen.title, ""])
     return {"name": chosen.name, "rows": rows}

@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 SAMPLE_RATE = 16000
 FRAME = 1280  # 80 ms
 STALL_REOPEN_S = 0.3
+MAX_QUEUED_BLOCKS = 25  # 2 s: if nothing reads the mic for longer, the oldest audio goes
 
 
 class AudioSource(Protocol):
@@ -63,15 +64,26 @@ class MicSource:
     async def _drop_stream(self) -> None:
         s, self._stream = self._stream, None
         if s is not None:
-            def kill() -> None:
-                try:
-                    s.abort()
-                    s.close()
-                except Exception:
-                    pass
-            await asyncio.to_thread(kill)
+            await self._kill(s)
         while not self._queue.empty():
             self._queue.get_nowait()
+
+    @staticmethod
+    async def _kill(s) -> None:
+        def kill() -> None:
+            try:
+                s.abort()
+                s.close()
+            except Exception:
+                pass
+        await asyncio.to_thread(kill)
+
+    def _push(self, block: np.ndarray) -> None:  # on the event loop
+        if not self._want_open.is_set():
+            return          # closed: nothing is kept
+        while self._queue.qsize() >= MAX_QUEUED_BLOCKS:
+            self._queue.get_nowait()
+        self._queue.put_nowait(block)
 
     async def _wait_for_audio(self) -> None:
         while self._queue.empty():
@@ -82,7 +94,7 @@ class MicSource:
         self._last_audio = time.monotonic()
         if self._loop is not None:
             try:
-                self._loop.call_soon_threadsafe(self._queue.put_nowait, block)
+                self._loop.call_soon_threadsafe(self._push, block)
             except RuntimeError:
                 pass  # event loop already closed (shutting down)
 
@@ -100,7 +112,11 @@ class MicSource:
             try:
                 if self._stream is None:
                     pending = np.zeros(0, np.int16)
-                    self._stream = await asyncio.to_thread(self._make_stream)
+                    s = await asyncio.to_thread(self._make_stream)
+                    if not self._want_open.is_set():   # closed while the device was opening
+                        await self._kill(s)
+                        continue
+                    self._stream = s
                     # count the first audio as due within the open grace period, not the stall window
                     self._last_audio = time.monotonic() + max(0.0, self.open_grace_seconds - self.stall_seconds)
                 if self._queue.empty():

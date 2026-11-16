@@ -19,6 +19,9 @@ log = logging.getLogger(__name__)
 KEEP_ALIVE = "30m"
 MAX_HISTORY = 20
 NUM_CTX = 4096  # short conversations; keeps the KV cache small so TTS + LLM fit in 16 GB
+# A hung Ollama must not freeze him. Reading waits long enough for a cold 12B load from disk; a stream
+# that goes quiet for that long mid-reply is treated as the brain being offline.
+TIMEOUT = httpx.Timeout(120.0, connect=3.0)
 
 
 class BrainUnavailable(Exception):
@@ -39,7 +42,7 @@ def _field(obj: Any, key: str, default: Any = None) -> Any:
 class Brain:
     def __init__(self, model: str, client: Any | None = None, tracker: Any | None = None) -> None:
         self.model = model
-        self.client = client if client is not None else ollama.AsyncClient()
+        self.client = client if client is not None else ollama.AsyncClient(timeout=TIMEOUT)
         self.tracker = tracker  # gives him the user's data and the tools to change it
         self.history: list[dict[str, str]] = []
 
@@ -76,8 +79,8 @@ class Brain:
         try:
             options = {"num_ctx": NUM_CTX, "num_predict": MAX_REPLY_TOKENS, **kw.pop("options", {})}
             return await self.client.chat(model=self.model, options=options, **kw)
-        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError) as e:
-            raise BrainUnavailable(f"Ollama is not reachable: {e}") from e
+        except (httpx.HTTPError, ConnectionError) as e:   # refused, timed out, dropped
+            raise BrainUnavailable(f"Ollama is not reachable: {e!r}") from e
         except ollama.ResponseError as e:
             raise BrainUnavailable(f"Ollama error for {self.model}: {e}") from e
 

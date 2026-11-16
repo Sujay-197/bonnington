@@ -65,13 +65,15 @@ async def _amain(state: dict) -> None:
         import ssl
 
         from .audio.phone import PhoneMicSource, ensure_cert, lan_ip
-        from .config import ensure_phone_token
+        from .config import ensure_phone_session, ensure_phone_token
         ip = lan_ip()
         cert, key = ensure_cert(ROOT / "data" / "phone", ip)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.load_cert_chain(cert, key)
-        mic = PhoneMicSource(settings.phone_port, ensure_phone_token(settings, settings_path),
-                             ssl_context=tls, lan_ip=ip)
+        # Bound to the LAN address only, not 0.0.0.0 (VPNs, other networks). If the address changes,
+        # restart Bonnington so it listens on the new one.
+        mic = PhoneMicSource(settings.phone_port, ensure_phone_token(settings, settings_path), host=ip,
+                             ssl_context=tls, lan_ip=ip, session=ensure_phone_session(settings, settings_path))
         await mic.start()
         print(f"Phone mic: open {mic.url} on your phone (same Wi-Fi) and enter code {mic.token}", flush=True)
         state["phone_url"] = f"{mic.url}  code {mic.token}"

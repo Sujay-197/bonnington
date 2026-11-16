@@ -16,7 +16,8 @@ class Settings:
     hotkey: str = "<ctrl>+<alt>+b"
     mic_source: str = "device"  # "device" = a PC input; "phone" = your phone over Wi-Fi
     phone_port: int = 8766
-    phone_token: str = ""  # secret in the phone link; generated on first use
+    phone_token: str = ""  # 6-digit pairing code; generated on first use
+    phone_session: str = ""  # long secret a paired phone keeps; only it opens the audio socket
     mic_device: str | None = None  # substring of the input device name; None = Windows default
     headphones_mode: bool = False
     always_listening: bool = False  # False = hotkey first: mic closed while dormant
@@ -63,3 +64,12 @@ def ensure_phone_token(s: Settings, path: Path) -> str:
         s.phone_token = f"{secrets.randbelow(10 ** 6):06d}"  # short enough to type on a phone
         save_settings(s, path)
     return s.phone_token
+
+
+def ensure_phone_session(s: Settings, path: Path) -> str:
+    """The secret a paired phone keeps, so it stays paired across restarts."""
+    if len(s.phone_session) < 32:
+        import secrets
+        s.phone_session = secrets.token_urlsafe(32)
+        save_settings(s, path)
+    return s.phone_session

@@ -30,6 +30,7 @@ OFFLINE_TEXT = "My brain is offline. Start Ollama."
 ERROR_TEXT = "Something went wrong on my end. Say that again."
 LOAD_FAILED_TEXT = "My ears or my voice failed to load. The log says why."
 FRAME_ERROR_LOG_S = 60.0  # the same frame error is logged at most once a minute
+WARM_TIMEOUT_S = 90.0     # a brain that has not answered by then is treated as offline; waking goes on
 HM_AFTER_S = 3.0
 PREROLL_FRAMES = 6  # 0.5 s kept from before speech is detected in a follow-up
 MAX_BUFFER_FRAMES = 25  # last 2 s of audio kept while models load (replay blocks the loop ~0.5 s)
@@ -272,9 +273,16 @@ class Orchestrator:
         self._buffer = []
         self._load_task = asyncio.create_task(self._load())
 
+    async def _warm_brain(self) -> None:
+        try:
+            await asyncio.wait_for(self.d.brain.warm(), WARM_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            log.warning("brain did not answer within %.0f s; carrying on without warming it", WARM_TIMEOUT_S)
+            raise BrainUnavailable("warm-up timed out") from None
+
     async def _load(self) -> None:
         d = self.d
-        loads = asyncio.gather(d.run_blocking(d.stt.load), d.brain.warm(),
+        loads = asyncio.gather(d.run_blocking(d.stt.load), self._warm_brain(),
                                d.run_blocking(d.tts.load), return_exceptions=True)
         sleeper = asyncio.ensure_future(self._sleep(HM_AFTER_S))
         try:

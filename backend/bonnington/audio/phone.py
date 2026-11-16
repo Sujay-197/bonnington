@@ -1,8 +1,9 @@
 """Phone as microphone: the phone opens a page served here and streams its mic over your Wi-Fi.
 
 Bluetooth earbuds stay in music mode (full quality) because their own mic is never opened.
-Audio only travels phone -> this PC on the local network; a secret token in the link keeps
-other devices on the Wi-Fi from connecting.
+Audio only travels phone -> this PC on the local network. A 6-digit code pairs the phone once; after
+that only a long session secret (kept in a cookie) opens the audio socket, so guessing the code is slow
+and never enough to listen in or speak for the user.
 """
 
 from __future__ import annotations
@@ -48,6 +49,26 @@ def authorised(path: str, token: str) -> bool:
     return bool(token) and given == token
 
 
+SESSION_COOKIE = "bon_s"
+
+
+def _given_session(request) -> str:
+    """The session secret a request carries: in the link (?s=) or in the cookie set at pairing."""
+    given = parse_qs(urlsplit(request.path).query).get("s", [""])[0]
+    if given:
+        return given
+    for part in request.headers.get("Cookie", "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == SESSION_COOKIE:
+            return value
+    return ""
+
+
+def secrets_equal(given: str, expected: str) -> bool:
+    import hmac
+    return bool(given) and bool(expected) and hmac.compare_digest(given, expected)
+
+
 def ensure_cert(directory: Path, ip: str) -> tuple[Path, Path]:
     """A self-signed certificate so the phone's browser will allow microphone access (it requires HTTPS)."""
     directory = Path(directory)
@@ -76,7 +97,8 @@ def code_form_html(wrong: bool = False) -> str:
 
 
 MAX_BAD_CODES = 8
-LOCKOUT_S = 60.0
+LOCKOUT_S = 60.0           # the first lockout; each one after it lasts twice as long as the last
+MAX_LOCKOUT_S = 3600.0     # at most 8 guesses an hour once someone keeps trying
 
 _CODE_FORM = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -101,10 +123,19 @@ _CODE_FORM = """<!doctype html>
 
 
 class PhoneMicSource:
+    """The 6-digit `token` only pairs a phone: the page it unlocks carries `session`, a long secret,
+    and only that opens the audio socket. A paired phone keeps it in a cookie, so it is never locked out."""
+
     def __init__(self, port: int, token: str, host: str = "0.0.0.0",
-                 ssl_context: ssl.SSLContext | None = None, lan_ip: str | None = None) -> None:
+                 ssl_context: ssl.SSLContext | None = None, lan_ip: str | None = None,
+                 session: str | None = None, clock=None) -> None:
+        import secrets
         self.port, self.token, self.host, self.ssl_context = port, token, host, ssl_context
+        self.session = session or secrets.token_urlsafe(32)
+        self._clock = clock or time.monotonic
         self._ip = lan_ip
+        self._locked_until = 0.0
+        self._lockouts = 0
         self._server = None
         self._phone: ServerConnection | None = None
         self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
@@ -178,21 +209,39 @@ class PhoneMicSource:
 
     # --- server -----------------------------------------------------------------
     def _process_request(self, connection: ServerConnection, request):
-        now = time.monotonic()
-        self._bad = [t for t in self._bad if now - t < LOCKOUT_S]
-        if len(self._bad) >= MAX_BAD_CODES:
-            return connection.respond(429, "Too many wrong codes. Wait a minute and try again.\n")
-        ok = authorised(request.path, self.token)
-        tried = bool(parse_qs(urlsplit(request.path).query).get("t", [""])[0])
-        if not ok and tried:
-            self._bad.append(now)
-            log.warning("phone mic: wrong code tried")
+        paired = secrets_equal(_given_session(request), self.session)
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return None if ok else connection.respond(403, "Forbidden\n")
-        body = (page_html(self.token) if ok else code_form_html(wrong=tried)).encode()
+            return None if paired else connection.respond(403, "Forbidden\n")   # the bare code never opens audio
+        if paired:
+            return self._page(paired_now=False)
+        now = self._clock()
+        if now < self._locked_until:
+            return connection.respond(429, "Too many wrong codes. Wait and try again.\n")
+        tried = bool(parse_qs(urlsplit(request.path).query).get("t", [""])[0])
+        if authorised(request.path, self.token):
+            self._bad = []
+            return self._page(paired_now=True)
+        if tried:
+            self._bad = [t for t in self._bad if now - t < LOCKOUT_S] + [now]
+            log.warning("phone mic: wrong code tried")
+            if len(self._bad) >= MAX_BAD_CODES:
+                self._lockouts += 1
+                self._locked_until = now + min(LOCKOUT_S * 2 ** (self._lockouts - 1), MAX_LOCKOUT_S)
+                self._bad = []
+                log.warning("phone mic: %d wrong codes; locked for %.0f s", MAX_BAD_CODES, self._locked_until - now)
+        return self._html(code_form_html(wrong=tried))
+
+    def _page(self, paired_now: bool) -> Response:
+        extra = [("Set-Cookie", f"{SESSION_COOKIE}={self.session}; Max-Age=31536000; Path=/; Secure; HttpOnly; "
+                                "SameSite=Strict")] if paired_now else []
+        return self._html(page_html(self.session), extra)
+
+    @staticmethod
+    def _html(text: str, extra: list[tuple[str, str]] | None = None) -> Response:
+        body = text.encode()
         return Response(200, "OK", Headers([("Content-Type", "text/html; charset=utf-8"),
                                             ("Content-Length", str(len(body))),
-                                            ("Cache-Control", "no-store")]), body)
+                                            ("Cache-Control", "no-store"), *(extra or [])]), body)
 
     async def _handle(self, ws: ServerConnection) -> None:
         if self._phone is not None:      # a newer connection replaces the old one
@@ -276,7 +325,7 @@ class Tap extends AudioWorkletProcessor {
 registerProcessor("tap", Tap);`;
 
 function connect() {
-  ws = new WebSocket(`wss://${location.host}/ws?t=${TOKEN}`);
+  ws = new WebSocket(`wss://${location.host}/ws?s=${encodeURIComponent(TOKEN)}`);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { msg.textContent = "Connected. Bonnington will listen when summoned."; };
   ws.onmessage = (e) => { try { capture = !!JSON.parse(e.data).capture; } catch {} dot.className = capture ? "live" : ""; };

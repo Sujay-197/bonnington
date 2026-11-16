@@ -96,8 +96,7 @@ def test_default_focus_is_the_most_recent_project(tracker):
 def test_focus_on_a_named_project_uses_its_detail(tracker):
     f = build_dashboard(tracker, focus_project="medrag")["focus"]
     assert f["name"] == "medrag"
-    assert f["rows"] == [["feat/x", "5D IDLE"], ["Stitch MCP integration", "5D AGO"], ["v0 and v1", "6D AGO"],
-                         ['"should we rly need containers>"', ""]]
+    assert f["rows"] == [["feat/x", "5D IDLE"], ["Stitch MCP integration", "5D AGO"], ["v0 and v1", "6D AGO"]]
 
 
 def test_status_line_uses_what_it_is_given(tracker):

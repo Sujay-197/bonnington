@@ -63,7 +63,9 @@ class TTSEngine:
         self._model = None
         self._ref_text = ""
         self._gen_lock = threading.Lock()   # the model is not re-entrant: one generation at a time
-        self._cancel = threading.Event()
+        # Bumped by cancel(). A sentence remembers the number from when it was asked for, so one still
+        # waiting for the model when he is interrupted is dropped instead of generated for nobody.
+        self._epoch = 0
         self._s_per_char = SECONDS_PER_CHAR
 
     @property
@@ -94,24 +96,28 @@ class TTSEngine:
         torch.cuda.empty_cache()
 
     def cancel(self) -> None:
-        """Stop the generation in progress (he was interrupted)."""
-        self._cancel.set()
+        """Stop the generation in progress and drop every sentence already asked for (he was interrupted)."""
+        self._epoch += 1
 
     def synth(self, sentence: str) -> Utterance:
         """Start speaking `sentence`. Returns as soon as the first chunk of audio exists."""
         if self._model is None:
             raise RuntimeError("TTSEngine.synth called before load()")
-        self._gen_lock.acquire()            # wait for the previous sentence to finish generating
-        self._cancel.clear()
+        epoch = self._epoch                 # taken before waiting, so a cancel while waiting counts
         est = max(300, int(len(sentence) * self._s_per_char * 1000))
         u = Utterance(np.zeros(0, np.float32), 24000, sentence,
                       estimate_word_offsets(sentence, est), stream=queue.Queue(), est_duration_ms=est)
+        self._gen_lock.acquire()            # wait for the previous sentence to finish generating
+        if epoch != self._epoch or self._model is None:   # interrupted (or unloaded) while waiting
+            self._gen_lock.release()
+            u.stream.put(None)
+            return u
         first = threading.Event()
-        threading.Thread(target=self._generate, args=(u, first), daemon=True).start()
+        threading.Thread(target=self._generate, args=(u, first, epoch), daemon=True).start()
         first.wait()
         return u
 
-    def _generate(self, u: Utterance, first: threading.Event) -> None:
+    def _generate(self, u: Utterance, first: threading.Event, epoch: int) -> None:
         samples = 0
         try:
             gen = self._model.generate_voice_clone_streaming(
@@ -124,11 +130,11 @@ class TTSEngine:
                     samples += len(pcm)
                     u.stream.put(pcm)
                     first.set()
-                    if self._cancel.is_set():
+                    if self._epoch != epoch:
                         break
             finally:
                 gen.close()
-            if samples and not self._cancel.is_set() and len(u.text) >= 8:
+            if samples and self._epoch == epoch and len(u.text) >= 8:
                 actual = samples / u.sample_rate / len(u.text)
                 self._s_per_char = 0.5 * self._s_per_char + 0.5 * actual
         except Exception:

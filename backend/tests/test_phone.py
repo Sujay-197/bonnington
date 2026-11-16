@@ -9,6 +9,7 @@ import websockets
 from bonnington.audio.phone import PhoneMicSource, authorised, ensure_cert, page_html
 
 TOKEN = "482913"
+SESSION = "paired-phone-secret-0123456789abcdef"
 
 
 async def _take(src, n):
@@ -20,7 +21,8 @@ async def _take(src, n):
 
 
 def _src(port):
-    return PhoneMicSource(port=port, token=TOKEN, host="127.0.0.1", ssl_context=None, lan_ip="127.0.0.1")
+    return PhoneMicSource(port=port, token=TOKEN, host="127.0.0.1", ssl_context=None, lan_ip="127.0.0.1",
+                          session=SESSION)
 
 
 @pytest.mark.parametrize("path,ok", [
@@ -43,7 +45,7 @@ async def test_phone_audio_arrives_as_80ms_frames(unused_tcp_port):
     src = _src(unused_tcp_port)
     await src.start()
     await src.open()
-    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}") as ws:
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?s={SESSION}") as ws:
         samples = (np.arange(2560) % 100).astype(np.int16)
         await ws.send(samples[:1000].tobytes())       # arbitrary chunk sizes
         await ws.send(samples[1000:].tobytes())
@@ -71,7 +73,7 @@ async def test_silence_and_a_hint_while_no_phone_is_connected(unused_tcp_port):
     assert all(not f.any() for f in frames) and frames[0].shape == (1280,)
     hint = src.status_hint()
     assert f"https://127.0.0.1:{unused_tcp_port}" in hint and "482913" in hint and "?t=" not in hint
-    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}"):
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?s={SESSION}"):
         await asyncio.sleep(0.05)
         assert src.connected and src.status_hint() is None
     await src.stop()
@@ -80,7 +82,7 @@ async def test_silence_and_a_hint_while_no_phone_is_connected(unused_tcp_port):
 async def test_open_and_close_tell_the_phone_to_capture_or_pause(unused_tcp_port):
     src = _src(unused_tcp_port)
     await src.start()
-    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}") as ws:
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?s={SESSION}") as ws:
         assert json.loads(await asyncio.wait_for(ws.recv(), 2)) == {"capture": False}   # state on connect
         await src.open()
         assert json.loads(await asyncio.wait_for(ws.recv(), 2)) == {"capture": True}
@@ -92,7 +94,7 @@ async def test_open_and_close_tell_the_phone_to_capture_or_pause(unused_tcp_port
 async def test_audio_sent_while_closed_is_dropped(unused_tcp_port):
     src = _src(unused_tcp_port)
     await src.start()
-    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}") as ws:
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?s={SESSION}") as ws:
         await ws.send(np.ones(1280, np.int16).tobytes())     # closed: dropped
         await asyncio.sleep(0.05)
         await src.open()
@@ -164,7 +166,7 @@ async def test_connection_changes_are_reported(unused_tcp_port):
     seen = []
     src.on_connection_change = lambda: seen.append(src.connected)
     await src.start()
-    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?t={TOKEN}"):
+    async with websockets.connect(f"ws://127.0.0.1:{unused_tcp_port}/ws?s={SESSION}"):
         await asyncio.sleep(0.05)
     await asyncio.sleep(0.1)
     assert seen == [True, False]

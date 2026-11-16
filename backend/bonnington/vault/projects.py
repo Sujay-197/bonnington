@@ -44,10 +44,37 @@ def _read_chunks(p: Path) -> list[str]:
     return (head + b"\n" + tail).decode("utf-8", errors="replace").splitlines()
 
 
-_SECRET_WORDS = re.compile(r"api[-_ ]?key|secret|password|passwd|token|bearer|authorization|private key",
-                           re.IGNORECASE)
+_SECRET_WORDS = re.compile(r"api[-_ ]?key|secret|password|passwd|passphrase|token|bearer|authorization|"
+                           r"private key|credentials?|\bcreds\b|\bpwd\b|\bpw\b|\bpass\s*[:=]", re.IGNORECASE)
+_SECRET_SHAPES = re.compile(
+    r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^@\s]+@"            # a URL with a password: postgres://user:pw@host
+    r"|\bAKIA[0-9A-Z]{16}\b"                               # AWS access key id
+    r"|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}"                   # OpenAI / Anthropic / Stripe style keys
+    r"|\bgh[pousr]_[A-Za-z0-9]{20,}"                        # GitHub tokens
+    r"|\bxox[abprs]-[A-Za-z0-9-]{10,}"                      # Slack tokens
+    r"|\bAIza[0-9A-Za-z_-]{30,}"                            # Google API keys
+    r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"           # JWTs
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY"
+    r"|\b[A-Z][A-Z0-9_]{2,}=\S{8,}")                        # an environment variable being set: FOO_KEY=...
 _LONG_TOKEN = re.compile(r"[A-Za-z0-9_\-.]{24,}")
+_BASE64ISH = re.compile(r"[A-Za-z0-9+/=_-]{30,}")           # base64 secrets contain / and +, which split _LONG_TOKEN
 _HIDDEN = "(a request containing a key or password, hidden)"
+_HIDDEN_LABEL = "(hidden: looked like a key or password)"
+
+
+def _looks_secret(text: str) -> bool:
+    if _SECRET_WORDS.search(text) or _SECRET_SHAPES.search(text):
+        return True
+    if any(re.search(r"\d", t) and re.search(r"[A-Za-z]", t) for t in _LONG_TOKEN.findall(text)):
+        return True
+    # mixed-case letters and digits, no dot: a key, not a file path like src/app/page.tsx
+    return any(re.search(r"\d", t) and re.search(r"[a-z]", t) and re.search(r"[A-Z]", t) and "." not in t
+               for t in _BASE64ISH.findall(text))
+
+
+def _scrub_label(text: str) -> str:
+    """A session title or branch name, safe to show and say."""
+    return _HIDDEN_LABEL if text and _looks_secret(text) else text
 _NOT_TYPED = ("<", "[Request interrupted", "Caveat:")
 MAX_REQUEST_CHARS = 160
 
@@ -57,8 +84,7 @@ def _clean_request(text: str) -> str | None:
     text = " ".join(text.split())
     if not text or text.startswith(_NOT_TYPED) or "<system-reminder>" in text or "<command-name>" in text:
         return None
-    if _SECRET_WORDS.search(text) or any(re.search(r"\d", t) and re.search(r"[A-Za-z]", t)
-                                         for t in _LONG_TOKEN.findall(text)):
+    if _looks_secret(text):
         return _HIDDEN
     return text if len(text) <= MAX_REQUEST_CHARS else text[:MAX_REQUEST_CHARS].rstrip() + "\u2026"
 
@@ -89,7 +115,8 @@ def _parse_session(p: Path) -> tuple[str, str, str, list[str]]:
                 cleaned = _clean_request(content)
                 if cleaned and (not prompts or prompts[-1] != cleaned):
                     prompts.append(cleaned)
-    return cwd, title, branch, prompts
+    branch = "" if branch and _looks_secret(branch) else branch
+    return cwd, _scrub_label(title), branch, prompts
 
 
 def _project_root(cwd: Path) -> Path:
